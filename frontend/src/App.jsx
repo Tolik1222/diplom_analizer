@@ -7,7 +7,7 @@ import HistogramChart from './components/HistogramChart';
 import ForensicsStudio from './components/ForensicsStudio';
 import { createSampleImage } from './utils/sampleGenerator';
 
-const API_BASE = 'http://127.0.0.1:8000';
+const API_BASE = import.meta.env.VITE_API_BASE || 'https://diplom-analizer.onrender.com';
 
 export default function App() {
   const [currentFile, setCurrentFile] = useState(null);
