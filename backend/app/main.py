@@ -25,6 +25,22 @@ app.add_middleware(
 )
 
 
+@app.get("/")
+async def root():
+    return {
+        "service": "OptiMetrics AI — Adaptive Image Optimization API",
+        "status": "running",
+        "docs": "/docs",
+        "health": "/api/health",
+        "endpoints": [
+            "POST /api/analyze",
+            "POST /api/optimize",
+            "POST /api/process-all",
+            "POST /api/forensics"
+        ]
+    }
+
+
 @app.get("/api/health")
 async def health_check():
     return {
