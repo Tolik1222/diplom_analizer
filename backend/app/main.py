@@ -56,7 +56,10 @@ async def health_check():
             "JPEG Chroma Subsampling Detector (SOF)",
             "Adaptive Multi-Criteria Decision Engine",
             "Bilateral Edge-Preserving Denoising",
-            "PSNR / SSIM Objective Validation"
+            "PSNR / SSIM Objective Validation",
+            "AGU DCT 32x32 (QS)",
+            "ADCT partition DCT (QS)",
+            "BPG HEVC-Intra model (Q=1..51)"
         ]
     }
 

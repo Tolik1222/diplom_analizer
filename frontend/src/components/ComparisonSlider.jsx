@@ -46,10 +46,14 @@ export default function ComparisonSlider({ originalUrl, optimizedUrl, meta, opti
     handleMove(e.clientX);
   };
 
+  const pccName = optimization?.pcc_name || 'Q';
+  const pccValue = optimization?.pcc_value ?? optimization?.quality_applied ?? 84;
+  const isLosslessResult = Boolean(optimization?.is_lossless) || pccName === 'lossless';
+
   const downloadOptimized = () => {
     if (!optimization || !optimization.data_url) return;
     const a = document.createElement('a');
-    a.href = optimization.data_url;
+    a.href = optimization.download_data_url || optimization.data_url;
     const origBase = meta?.filename
       ? meta.filename.substring(0, meta.filename.lastIndexOf('.')) || meta.filename
       : 'image';
@@ -132,7 +136,9 @@ export default function ComparisonSlider({ originalUrl, optimizedUrl, meta, opti
         </div>
 
         <div className="split-label label-optimized">
-          Оптимізовано: {optimization?.format || 'WEBP'} ({optimization?.optimized_size_kb ?? 0} KB)
+          Оптимізовано: {optimization?.format || 'WEBP'}
+          {optimization?.chroma_subsampling ? ` ${optimization.chroma_subsampling}` : ''}
+          {' '}({optimization?.optimized_size_kb ?? 0} KB)
         </div>
       </div>
 
@@ -180,7 +186,10 @@ export default function ComparisonSlider({ originalUrl, optimizedUrl, meta, opti
               Формат і якість
             </div>
             <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#fbbf24', fontFamily: 'var(--font-mono)' }}>
-              {optimization.format || 'WEBP'} <span style={{ fontSize: '0.9rem' }}>Q={optimization.quality_applied ?? 84}</span>
+              {optimization.format || 'WEBP'}{' '}
+              <span style={{ fontSize: '0.9rem' }}>
+                {isLosslessResult ? 'Lossless' : `${pccName}=${pccValue}`}
+              </span>
             </div>
             <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
               {optimization.applied_filter && optimization.applied_filter !== 'none'

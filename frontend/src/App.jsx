@@ -5,6 +5,7 @@ import DecisionCard from './components/DecisionCard';
 import ComparisonSlider from './components/ComparisonSlider';
 import HistogramChart from './components/HistogramChart';
 import ForensicsStudio from './components/ForensicsStudio';
+import UserGuideModal from './components/UserGuideModal';
 import { createSampleImage } from './utils/sampleGenerator';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'https://diplom-analizer.onrender.com';
@@ -18,6 +19,7 @@ export default function App() {
   const [optimizationResult, setOptimizationResult] = useState(null);
   const [error, setError] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
 
   const fileInputRef = useRef(null);
 
@@ -150,6 +152,7 @@ export default function App() {
     if (!analysisResult?.metrics || !optimizationResult) return;
     const reportData = {
       project: 'OptiMetrics AI - Adaptive Image Optimization System',
+      methodology: 'Multi-criteria decision synthesis based on Shannon Entropy, ITU-T P.910 SI, Immerkaer/Donoho Noise Variance',
       timestamp: new Date().toISOString(),
       source_image: analysisResult.metrics.metadata,
       diagnostic_measurements: {
@@ -158,10 +161,27 @@ export default function App() {
         sharpness_variance: analysisResult.metrics.sharpness,
         color_and_chroma: analysisResult.metrics.color,
       },
-      decision_engine_rules: analysisResult.strategy,
+      decision_engine: {
+        scientific_summary: analysisResult.strategy?.scientific_summary,
+        decision_criteria_matrix: analysisResult.strategy?.decision_matrix,
+        numerical_thresholds: analysisResult.strategy?.numerical_thresholds,
+        strategy_recommendation: {
+          format: analysisResult.strategy?.recommended_format,
+          quality: analysisResult.strategy?.recommended_quality,
+          chroma_subsampling: analysisResult.strategy?.chroma_subsampling,
+          is_lossless: analysisResult.strategy?.is_lossless,
+          denoise_filter: analysisResult.strategy?.denoise_filter,
+          filter_params: analysisResult.strategy?.filter_params,
+        },
+        explanations: analysisResult.strategy?.explanations,
+      },
       experimental_results: {
         target_format: optimizationResult.format,
         quality_factor: optimizationResult.quality_applied,
+        pcc_name: optimizationResult.pcc_name,
+        pcc_value: optimizationResult.pcc_value,
+        chroma_subsampling: optimizationResult.chroma_subsampling,
+        is_lossless: optimizationResult.is_lossless,
         original_size_bytes: optimizationResult.original_size_bytes,
         compressed_size_bytes: optimizationResult.optimized_size_bytes,
         compression_ratio_percent: optimizationResult.saved_percent,
@@ -228,7 +248,20 @@ export default function App() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => setIsGuideOpen(true)}
+              className="btn-secondary"
+              style={{
+                padding: '0.5rem 1rem',
+                fontSize: '0.85rem',
+                borderColor: 'rgba(99, 102, 241, 0.4)',
+                background: 'rgba(99, 102, 241, 0.1)',
+                color: '#c7d2fe'
+              }}
+            >
+              Інструкція та методологія
+            </button>
             {optimizationResult && (
               <button onClick={exportDiplomaReport} className="btn-secondary" style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}>
                 Експорт наукового звіту (JSON)
@@ -273,7 +306,7 @@ export default function App() {
 
           {/* Preset Buttons for Quick Testing */}
           <div className="sample-chips" onClick={(e) => e.stopPropagation()}>
-            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Контрольні зразки для тестування:</span>
+            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Контрольні зразки:</span>
             <button onClick={() => loadPreset('photo')} className="chip-btn">
               Зразок: Фотографічне зображення
             </button>
@@ -282,6 +315,13 @@ export default function App() {
             </button>
             <button onClick={() => loadPreset('noisy')} className="chip-btn">
               Зразок: Зашумлене зображення
+            </button>
+            <button
+              onClick={() => setIsGuideOpen(true)}
+              className="chip-btn"
+              style={{ background: 'rgba(6, 182, 212, 0.15)', borderColor: 'rgba(6, 182, 212, 0.35)', color: '#67e8f9' }}
+            >
+              Довідник порогів та правил
             </button>
           </div>
         </div>
@@ -330,6 +370,7 @@ export default function App() {
                 strategy={strategy}
                 onReoptimize={handleReoptimize}
                 isProcessing={loading}
+                onOpenGuide={() => setIsGuideOpen(true)}
               />
             )}
 
@@ -430,6 +471,12 @@ export default function App() {
           </>
         )}
       </main>
+
+      {/* User Guide & Decision Methodology Modal */}
+      <UserGuideModal
+        isOpen={isGuideOpen}
+        onClose={() => setIsGuideOpen(false)}
+      />
     </div>
   );
 }
