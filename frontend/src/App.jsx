@@ -5,15 +5,19 @@ import DecisionCard from './components/DecisionCard';
 import ComparisonSlider from './components/ComparisonSlider';
 import HistogramChart from './components/HistogramChart';
 import ForensicsStudio from './components/ForensicsStudio';
+import BatchProcessor from './components/BatchProcessor';
 import UserGuideModal from './components/UserGuideModal';
 import { createSampleImage } from './utils/sampleGenerator';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'https://diplom-analizer.onrender.com';
 
 export default function App() {
+  const [appMode, setAppMode] = useState('single'); // 'single' | 'batch'
+  const [viewMode, setViewMode] = useState('simple'); // 'simple' | 'scientific' (like standard vs scientific calculator)
   const [currentFile, setCurrentFile] = useState(null);
   const [originalPreviewUrl, setOriginalPreviewUrl] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [isReoptimizing, setIsReoptimizing] = useState(false);
   const [loadingStage, setLoadingStage] = useState('');
   const [analysisResult, setAnalysisResult] = useState(null);
   const [optimizationResult, setOptimizationResult] = useState(null);
@@ -32,7 +36,7 @@ export default function App() {
     });
   };
 
-  // Master processing handler
+  // Master processing handler for a single image
   const processImageFile = async (file, customStrategy = null) => {
     if (!file) return;
     setError(null);
@@ -82,11 +86,10 @@ export default function App() {
     }
   };
 
-  // Re-optimize with modified custom strategy
+  // Re-optimize with modified custom strategy (does NOT recalculate metrics or reload whole page)
   const handleReoptimize = async (updatedStrategy) => {
     if (!currentFile) return;
-    setLoading(true);
-    setLoadingStage('Перерахунок стиснення та валідація SSIM/PSNR...');
+    setIsReoptimizing(true);
     try {
       const formData = new FormData();
       formData.append('file', currentFile);
@@ -103,17 +106,20 @@ export default function App() {
       }
 
       const data = await response.json();
-      setOptimizationResult(data.result);
-      setAnalysisResult((prev) => ({
-        ...prev,
-        strategy: data.strategy_used
-      }));
+      if (data && data.result) {
+        setOptimizationResult(data.result);
+      }
+      if (data && data.strategy_used) {
+        setAnalysisResult((prev) => ({
+          ...prev,
+          strategy: data.strategy_used
+        }));
+      }
     } catch (err) {
-      console.error(err);
-      setError(`Помилка перерахунку: ${err.message}`);
+      console.error('Re-optimization error:', err);
+      setError(`Помилка перерахунку стиснення: ${err.message}`);
     } finally {
-      setLoading(false);
-      setLoadingStage('');
+      setIsReoptimizing(false);
     }
   };
 
@@ -131,13 +137,21 @@ export default function App() {
     e.preventDefault();
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      processImageFile(e.dataTransfer.files[0]);
+      if (e.dataTransfer.files.length > 1) {
+        setAppMode('batch');
+      } else {
+        processImageFile(e.dataTransfer.files[0]);
+      }
     }
   };
 
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files.length > 0) {
-      processImageFile(e.target.files[0]);
+      if (e.target.files.length > 1) {
+        setAppMode('batch');
+      } else {
+        processImageFile(e.target.files[0]);
+      }
     }
   };
 
@@ -145,6 +159,19 @@ export default function App() {
   const loadPreset = async (presetType) => {
     const file = await createSampleImage(presetType);
     processImageFile(file);
+  };
+
+  // Switch to inspect single item from batch processor
+  const handleInspectSingle = (batchItem) => {
+    if (!batchItem) return;
+    setCurrentFile(batchItem.originalFile || null);
+    setOriginalPreviewUrl(batchItem.originalUrl || batchItem.optimization?.data_url);
+    setAnalysisResult({
+      metrics: batchItem.metrics,
+      strategy: batchItem.strategy
+    });
+    setOptimizationResult(batchItem.optimization || null);
+    setAppMode('single');
   };
 
   // Export diploma report as JSON file
@@ -239,7 +266,7 @@ export default function App() {
         <div className="header-container">
           <div className="logo-group">
             <div className="logo-text">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '2px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '2px', flexWrap: 'wrap' }}>
                 <span className="logo-badge">ДИПЛОМНИЙ ПРОЄКТ</span>
                 <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
                   Адаптивна підготовка та оптимізація медіаконтенту
@@ -248,13 +275,91 @@ export default function App() {
             </div>
           </div>
 
+          {/* Center: Mode Selectors (Single vs Batch & Simple vs Scientific) */}
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* Primary Mode: Single vs Batch */}
+            <div style={{ display: 'flex', background: 'rgba(255,255,255,0.06)', borderRadius: '8px', padding: '3px', border: '1px solid rgba(255,255,255,0.1)' }}>
+              <button
+                onClick={() => setAppMode('single')}
+                style={{
+                  padding: '0.35rem 0.85rem',
+                  borderRadius: '6px',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  background: appMode === 'single' ? 'var(--primary)' : 'transparent',
+                  color: appMode === 'single' ? '#fff' : '#94a3b8',
+                  border: 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s'
+                }}
+              >
+                Одиночний аналіз
+              </button>
+              <button
+                onClick={() => setAppMode('batch')}
+                style={{
+                  padding: '0.35rem 0.85rem',
+                  borderRadius: '6px',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  background: appMode === 'batch' ? 'var(--primary)' : 'transparent',
+                  color: appMode === 'batch' ? '#fff' : '#94a3b8',
+                  border: 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s'
+                }}
+              >
+                Пакетна обробка пачки
+              </button>
+            </div>
+
+            {/* View Style: Simple vs Scientific (like standard vs scientific calculator) */}
+            <div style={{ display: 'flex', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '3px', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <button
+                onClick={() => setViewMode('simple')}
+                title="Лаконічний вигляд без складних формул і розгорнутих матриць"
+                style={{
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: '6px',
+                  fontSize: '0.76rem',
+                  fontWeight: 600,
+                  background: viewMode === 'simple' ? 'rgba(99,102,241,0.35)' : 'transparent',
+                  color: viewMode === 'simple' ? '#fff' : '#94a3b8',
+                  border: viewMode === 'simple' ? '1px solid rgba(99,102,241,0.5)' : '1px solid transparent',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s'
+                }}
+              >
+                Базовий
+              </button>
+              <button
+                onClick={() => setViewMode('scientific')}
+                title="Повний науковий апарат: формули, пороги, матриця рішень"
+                style={{
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: '6px',
+                  fontSize: '0.76rem',
+                  fontWeight: 600,
+                  background: viewMode === 'scientific' ? 'rgba(99,102,241,0.35)' : 'transparent',
+                  color: viewMode === 'scientific' ? '#fff' : '#94a3b8',
+                  border: viewMode === 'scientific' ? '1px solid rgba(99,102,241,0.5)' : '1px solid transparent',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s'
+                }}
+              >
+                Науковий (розширений)
+              </button>
+            </div>
+          </div>
+
+          {/* Right Action buttons */}
           <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <button
               onClick={() => setIsGuideOpen(true)}
               className="btn-secondary"
               style={{
-                padding: '0.5rem 1rem',
-                fontSize: '0.85rem',
+                padding: '0.45rem 0.9rem',
+                fontSize: '0.82rem',
                 borderColor: 'rgba(99, 102, 241, 0.4)',
                 background: 'rgba(99, 102, 241, 0.1)',
                 color: '#c7d2fe'
@@ -262,18 +367,20 @@ export default function App() {
             >
               Інструкція та методологія
             </button>
-            {optimizationResult && (
-              <button onClick={exportDiplomaReport} className="btn-secondary" style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}>
-                Експорт наукового звіту (JSON)
+            {appMode === 'single' && optimizationResult && (
+              <button onClick={exportDiplomaReport} className="btn-secondary" style={{ padding: '0.45rem 0.9rem', fontSize: '0.82rem' }}>
+                Експорт звіту (JSON)
               </button>
             )}
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="btn-primary"
-              style={{ padding: '0.5rem 1.1rem', fontSize: '0.85rem' }}
-            >
-              Завантажити файл
-            </button>
+            {appMode === 'single' && (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="btn-primary"
+                style={{ padding: '0.45rem 1rem', fontSize: '0.82rem' }}
+              >
+                Завантажити файл
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -289,185 +396,231 @@ export default function App() {
           style={{ display: 'none' }}
         />
 
-        {/* Hero Dropzone & Quick Presets */}
-        <div
-          className={`dropzone-container ${isDragging ? 'dragging' : ''}`}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <h2 style={{ fontSize: '1.3rem', fontWeight: 700, color: '#fff', marginBottom: '0.5rem' }}>
-            Перетягніть сюди файл зображення або клікніть для вибору
-          </h2>
-          <p style={{ fontSize: '0.88rem', color: '#94a3b8', maxWidth: '600px', margin: '0 auto' }}>
-            Підтримуються формати JPEG, PNG, WebP. Система автоматично проведе математичну оцінку шуму, ентропії, просторової складності та підбере оптимальні параметри компресії.
-          </p>
-
-          {/* Preset Buttons for Quick Testing */}
-          <div className="sample-chips" onClick={(e) => e.stopPropagation()}>
-            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Контрольні зразки:</span>
-            <button onClick={() => loadPreset('photo')} className="chip-btn">
-              Зразок: Фотографічне зображення
-            </button>
-            <button onClick={() => loadPreset('graphic')} className="chip-btn">
-              Зразок: Векторна графіка (4:4:4)
-            </button>
-            <button onClick={() => loadPreset('noisy')} className="chip-btn">
-              Зразок: Зашумлене зображення
-            </button>
-            <button
-              onClick={() => setIsGuideOpen(true)}
-              className="chip-btn"
-              style={{ background: 'rgba(6, 182, 212, 0.15)', borderColor: 'rgba(6, 182, 212, 0.35)', color: '#67e8f9' }}
-            >
-              Довідник порогів та правил
-            </button>
-          </div>
-        </div>
-
-        {/* Loading overlay indicator */}
-        {loading && (
-          <div className="glass-panel" style={{ padding: '2rem', textAlign: 'center' }}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#fff' }}>
-              {loadingStage || 'Обробка та оцінка параметрів...'}
-            </h3>
-            <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.4rem' }}>
-              Обчислення алгоритмів Immerkaer, Donoho Haar MAD, ITU-T SI та валідація SSIM
-            </p>
-          </div>
-        )}
-
-        {/* Error Notification */}
-        {error && (
-          <div className="glass-panel" style={{ padding: '1.25rem', borderColor: 'rgba(244, 63, 94, 0.4)', background: 'rgba(244, 63, 94, 0.1)', color: '#fb7185' }}>
-            <div>
-              <strong>Повідомлення системи: </strong> {error}
-            </div>
-          </div>
-        )}
-
-        {/* Results Sections */}
-        {metrics && !loading && (
+        {/* -------------------------------------------------------------
+            MODE A: BATCH PROCESSING OF MULTIPLE IMAGES
+           ------------------------------------------------------------- */}
+        {appMode === 'batch' ? (
+          <BatchProcessor
+            apiBase={API_BASE}
+            onInspectSingle={handleInspectSingle}
+            isScientific={viewMode === 'scientific'}
+          />
+        ) : (
+          /* -------------------------------------------------------------
+              MODE B: SINGLE IMAGE DEEP ASSESSMENT & OPTIMIZATION
+             ------------------------------------------------------------- */
           <>
-            {/* 1. Comparison Studio (Before vs After) */}
-            <ComparisonSlider
-              originalUrl={originalPreviewUrl}
-              optimizedUrl={optimizationResult?.data_url}
-              meta={metrics.metadata}
-              optimization={optimizationResult}
-            />
+            {/* Hero Dropzone & Quick Presets */}
+            <div
+              className={`dropzone-container ${isDragging ? 'dragging' : ''}`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <h2 style={{ fontSize: '1.3rem', fontWeight: 700, color: '#fff', marginBottom: '0.5rem' }}>
+                Перетягніть сюди файл зображення або клікніть для вибору
+              </h2>
+              <p style={{ fontSize: '0.88rem', color: '#94a3b8', maxWidth: '600px', margin: '0 auto' }}>
+                Підтримуються формати JPEG, PNG, WebP. Система автоматично проведе математичну оцінку шуму, ентропії, просторової складності та підбере оптимальні параметри компресії.
+              </p>
 
-            {/* 2. Forensics Studio & Pixel Loupe Magnifier */}
-            <ForensicsStudio
-              file={currentFile}
-              originalUrl={originalPreviewUrl}
-            />
+              {/* Preset Buttons for Quick Testing */}
+              <div className="sample-chips" onClick={(e) => e.stopPropagation()}>
+                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Контрольні зразки:</span>
+                <button onClick={() => loadPreset('photo')} className="chip-btn">
+                  Зразок: Фотографічне зображення
+                </button>
+                <button onClick={() => loadPreset('graphic')} className="chip-btn">
+                  Зразок: Векторна графіка (4:4:4)
+                </button>
+                <button onClick={() => loadPreset('noisy')} className="chip-btn">
+                  Зразок: Зашумлене зображення
+                </button>
+                <button
+                  onClick={() => setIsGuideOpen(true)}
+                  className="chip-btn"
+                  style={{ background: 'rgba(6, 182, 212, 0.15)', borderColor: 'rgba(6, 182, 212, 0.35)', color: '#67e8f9' }}
+                >
+                  Довідник порогів та правил
+                </button>
+              </div>
+            </div>
 
-            {/* 3. Intelligent Decision Engine Recommendation Banner */}
-            {strategy && (
-              <DecisionCard
-                strategy={strategy}
-                onReoptimize={handleReoptimize}
-                isProcessing={loading}
-                onOpenGuide={() => setIsGuideOpen(true)}
-              />
-            )}
-
-            {/* 4. Diagnostic Metrics Grid */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <div>
+            {/* Loading overlay indicator (ONLY on initial image upload/full metric analysis) */}
+            {loading && (
+              <div className="glass-panel" style={{ padding: '2rem', textAlign: 'center' }}>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#fff' }}>
-                  Результати математичного профілювання зображення
+                  {loadingStage || 'Обробка та оцінка параметрів...'}
                 </h3>
-                <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.15rem' }}>
-                  Ключові параметри, на основі яких синтезується стратегія адаптивної фільтрації та компресії:
+                <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.4rem' }}>
+                  Обчислення алгоритмів Immerkaer, Donoho Haar MAD, ITU-T SI та валідація SSIM
                 </p>
               </div>
+            )}
 
-              <div className="metrics-grid">
-                {/* Metric 1: Noise Level */}
-                <MetricCard
-                  title="Оцінка рівня шуму"
-                  badge={noiseLevel}
-                  badgeType={noiseScore > 35 ? 'alert' : (noiseScore > 20 ? 'warning' : 'clean')}
-                  value={noiseScore}
-                  unit="/ 100"
-                  description={`Медіанне відхилення Donoho MAD: σ=${donohoVal}, Immerkaer: σ=${immerkaerVal}.`}
-                  formula="J. Immerkaer Fast Noise & 2D Haar Wavelet MAD"
-                  progress={noiseScore}
-                  progressColor={noiseScore > 35 ? 'linear-gradient(90deg, #f59e0b, #f43f5e)' : 'linear-gradient(90deg, #10b981, #06b6d4)'}
-                />
-
-                {/* Metric 2: Spatial Information & Complexity */}
-                <MetricCard
-                  title="Просторова складність (SI)"
-                  badge={`SI = ${spatialInfo}`}
-                  badgeType="info"
-                  value={complexityScore}
-                  unit="/ 100"
-                  description={`Високочастотна спектральна енергія FFT: ${highFreqRatio}%.`}
-                  formula="ITU-T P.910 (Sobel gradient std) + 2D FFT"
-                  progress={complexityScore}
-                  progressColor="linear-gradient(90deg, #6366f1, #a855f7)"
-                />
-
-                {/* Metric 3: Shannon Information Entropy */}
-                <MetricCard
-                  title="Інформаційна ентропія Шеннона"
-                  badge={`${Math.round((entropyBits / 8.0) * 100)}% ємності`}
-                  badgeType="info"
-                  value={entropyBits}
-                  unit="bits / pixel"
-                  description="Теоретичний мінімум кількості бітів для представлення градацій яскравості без втрат."
-                  formula="H = -Σ p(i) · log₂(p(i)) (макс 8.0 біт)"
-                  progress={(entropyBits / 8.0) * 100}
-                  progressColor="linear-gradient(90deg, #06b6d4, #3b82f6)"
-                />
-
-                {/* Metric 4: Sharpness & Blur */}
-                <MetricCard
-                  title="Різкість (Sharpness / Blur)"
-                  badge={isBlurry ? 'Розмито' : 'Різке'}
-                  badgeType={isBlurry ? 'warning' : 'clean'}
-                  value={sharpnessScore}
-                  unit="/ 100"
-                  description={`Дисперсія оператора Лапласа Var(ΔI) = ${laplaceVar}.`}
-                  formula="Laplacian Variance Focus Measure"
-                  progress={sharpnessScore}
-                  progressColor="linear-gradient(90deg, #10b981, #6366f1)"
-                />
-
-                {/* Metric 5: Chroma Subsampling & Color Space */}
-                <MetricCard
-                  title="Субдискретизація кольору"
-                  badge={chromaShort}
-                  badgeType={chromaStr.includes('4:4:4') ? 'clean' : 'info'}
-                  value={chromaShort}
-                  unit=""
-                  description={`Простір кольору: ${colorSpace}. Профіль: ${profileName}.`}
-                  formula="JPEG SOF Marker Parsing & ICC Profile Inspection"
-                  progress={chromaStr.includes('4:4:4') ? 100 : 50}
-                  progressColor="linear-gradient(90deg, #38bdf8, #818cf8)"
-                />
-
-                {/* Metric 6: Classification & Dimensions */}
-                <MetricCard
-                  title="Класифікація контенту"
-                  badge={`${imgWidth}×${imgHeight}`}
-                  badgeType="clean"
-                  value={contentTypeShort}
-                  unit={`(${imgMegapixels} MP)`}
-                  description={`Співвідношення сторін: ${imgAspectRatio}:1. Вихідний формат: ${imgFormat}.`}
-                  formula="Color Diversity & Edge Gradient Density Ratio"
-                  progress={75}
-                  progressColor="linear-gradient(90deg, #ec4899, #8b5cf6)"
-                />
+            {/* Error Notification */}
+            {error && (
+              <div className="glass-panel" style={{ padding: '1.25rem', borderColor: 'rgba(244, 63, 94, 0.4)', background: 'rgba(244, 63, 94, 0.1)', color: '#fb7185' }}>
+                <div>
+                  <strong>Повідомлення системи: </strong> {error}
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* 5. Color & Luminance Histogram */}
-            {metrics.histograms && <HistogramChart histograms={metrics.histograms} />}
+            {/* Results Sections - Ordered logically:
+                1. Image assessment information & histograms (FIRST)
+                2. Decision synthesis & manual / auto mode (SECOND)
+                3. Preview comparison & forensics (THIRD) */}
+            {metrics && !loading && (
+              <>
+                {/* 1. ДІАГНОСТИЧНЕ ПРОФІЛЮВАННЯ ЗОБРАЖЕННЯ (ПЕРШИМ) */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <div>
+                      <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#fff' }}>
+                        1. Математичне профілювання характеристик зображення
+                      </h3>
+                      <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.15rem' }}>
+                        Оцінені параметри сигналу (ентропія, шум, просторова складність), на основі яких синтезується стратегія
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="metrics-grid">
+                    {/* Metric 1: Noise Level */}
+                    <MetricCard
+                      title="Оцінка рівня шуму"
+                      badge={noiseLevel}
+                      badgeType={noiseScore > 35 ? 'alert' : (noiseScore > 20 ? 'warning' : 'clean')}
+                      value={noiseScore}
+                      unit="/ 100"
+                      description={`Медіанне відхилення Donoho MAD: σ=${donohoVal}, Immerkaer: σ=${immerkaerVal}.`}
+                      formula="J. Immerkaer Fast Noise & 2D Haar Wavelet MAD"
+                      progress={noiseScore}
+                      progressColor={noiseScore > 35 ? 'linear-gradient(90deg, #f59e0b, #f43f5e)' : 'linear-gradient(90deg, #10b981, #06b6d4)'}
+                      isScientific={viewMode === 'scientific'}
+                    />
+
+                    {/* Metric 2: Spatial Information & Complexity */}
+                    <MetricCard
+                      title="Просторова складність (SI)"
+                      badge={`SI = ${spatialInfo}`}
+                      badgeType="info"
+                      value={complexityScore}
+                      unit="/ 100"
+                      description={`Високочастотна спектральна енергія FFT: ${highFreqRatio}%.`}
+                      formula="ITU-T P.910 (Sobel gradient std) + 2D FFT"
+                      progress={complexityScore}
+                      progressColor="linear-gradient(90deg, #6366f1, #a855f7)"
+                      isScientific={viewMode === 'scientific'}
+                    />
+
+                    {/* Metric 3: Shannon Information Entropy */}
+                    <MetricCard
+                      title="Інформаційна ентропія Шеннона"
+                      badge={`${Math.round((entropyBits / 8.0) * 100)}% ємності`}
+                      badgeType="info"
+                      value={entropyBits}
+                      unit="bits / pixel"
+                      description="Теоретичний мінімум кількості бітів для представлення градацій яскравості без втрат."
+                      formula="H = -Σ p(i) · log₂(p(i)) (макс 8.0 біт)"
+                      progress={(entropyBits / 8.0) * 100}
+                      progressColor="linear-gradient(90deg, #06b6d4, #3b82f6)"
+                      isScientific={viewMode === 'scientific'}
+                    />
+
+                    {/* Metric 4: Sharpness & Blur */}
+                    <MetricCard
+                      title="Різкість (Sharpness / Blur)"
+                      badge={isBlurry ? 'Розмито' : 'Різке'}
+                      badgeType={isBlurry ? 'warning' : 'clean'}
+                      value={sharpnessScore}
+                      unit="/ 100"
+                      description={`Дисперсія оператора Лапласа Var(ΔI) = ${laplaceVar}.`}
+                      formula="Laplacian Variance Focus Measure"
+                      progress={sharpnessScore}
+                      progressColor="linear-gradient(90deg, #10b981, #6366f1)"
+                      isScientific={viewMode === 'scientific'}
+                    />
+
+                    {/* Metric 5: Chroma Subsampling & Color Space */}
+                    <MetricCard
+                      title="Субдискретизація кольору"
+                      badge={chromaShort}
+                      badgeType={chromaStr.includes('4:4:4') ? 'clean' : 'info'}
+                      value={chromaShort}
+                      unit=""
+                      description={`Простір кольору: ${colorSpace}. Профіль: ${profileName}.`}
+                      formula="JPEG SOF Marker Parsing & ICC Profile Inspection"
+                      progress={chromaStr.includes('4:4:4') ? 100 : 50}
+                      progressColor="linear-gradient(90deg, #38bdf8, #818cf8)"
+                      isScientific={viewMode === 'scientific'}
+                    />
+
+                    {/* Metric 6: Classification & Dimensions */}
+                    <MetricCard
+                      title="Класифікація контенту"
+                      badge={`${imgWidth}×${imgHeight}`}
+                      badgeType="clean"
+                      value={contentTypeShort}
+                      unit={`(${imgMegapixels} MP)`}
+                      description={`Співвідношення сторін: ${imgAspectRatio}:1. Вихідний формат: ${imgFormat}.`}
+                      formula="Color Diversity & Edge Gradient Density Ratio"
+                      progress={75}
+                      progressColor="linear-gradient(90deg, #ec4899, #8b5cf6)"
+                      isScientific={viewMode === 'scientific'}
+                    />
+                  </div>
+                </div>
+
+                {/* Гістограми розподілу каналів */}
+                {metrics.histograms && <HistogramChart histograms={metrics.histograms} />}
+
+                {/* 2. МОДУЛЬ СИНТЕЗУ РІШЕНЬ ТА РУЧНОГО ВИБОРУ (ДРУГИМ) */}
+                {strategy && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#fff' }}>
+                      2. Модуль оптимізації та вибору режиму кодування
+                    </h3>
+                    <DecisionCard
+                      strategy={strategy}
+                      onReoptimize={handleReoptimize}
+                      isProcessing={isReoptimizing}
+                      onOpenGuide={() => setIsGuideOpen(true)}
+                      isScientific={viewMode === 'scientific'}
+                    />
+                  </div>
+                )}
+
+                {/* 3. ПОПЕРЕДНІЙ ПЕРЕГЛЯД ТА ФОРЕНЗИКА (ТРЕТІМ) */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  <div>
+                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#fff' }}>
+                      3. Попередній перегляд оптимізації та контроль артефактів
+                    </h3>
+                    <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.15rem' }}>
+                      Порівняння початкового та стисненого файлу (SSIM / PSNR) та форензичний аудит
+                    </p>
+                  </div>
+
+                  {/* Comparison Studio (Before vs After) */}
+                  <ComparisonSlider
+                    originalUrl={originalPreviewUrl}
+                    optimizedUrl={optimizationResult?.data_url}
+                    meta={metrics.metadata}
+                    optimization={optimizationResult}
+                    isUpdating={isReoptimizing}
+                  />
+
+                  {/* Forensics Studio & Pixel Loupe Magnifier */}
+                  <ForensicsStudio
+                    file={currentFile}
+                    originalUrl={originalPreviewUrl}
+                  />
+                </div>
+              </>
+            )}
           </>
         )}
       </main>

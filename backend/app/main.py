@@ -2,7 +2,7 @@ import json
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from typing import Optional
+from typing import Optional, List
 
 from app.analyzer.metrics import analyze_image_full
 from app.analyzer.decision_engine import determine_optimization_strategy
@@ -36,6 +36,7 @@ async def root():
             "POST /api/analyze",
             "POST /api/optimize",
             "POST /api/process-all",
+            "POST /api/batch-process",
             "POST /api/forensics"
         ]
     }
@@ -177,6 +178,94 @@ async def process_all_in_one(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Pipeline processing failed: {str(e)}")
+
+
+@app.post("/api/batch-process")
+async def batch_process_images(
+    files: List[UploadFile] = File(...),
+    custom_strategy: Optional[str] = Form(None)
+):
+    """
+    Batch processing pipeline for multiple images simultaneously:
+    Computes diagnostic metrics, applies adaptive decision strategy,
+    compresses each image, and returns overall batch statistics.
+    """
+    if not files or len(files) == 0:
+        raise HTTPException(status_code=400, detail="No files provided for batch processing.")
+
+    parsed_strategy = None
+    if custom_strategy:
+        try:
+            parsed_strategy = json.loads(custom_strategy)
+        except Exception:
+            parsed_strategy = None
+
+    items = []
+    total_orig_bytes = 0
+    total_opt_bytes = 0
+    total_ssim = 0.0
+    total_psnr = 0.0
+    valid_count = 0
+
+    for file in files:
+        try:
+            raw_bytes = await file.read()
+            if len(raw_bytes) == 0:
+                continue
+
+            metrics = analyze_image_full(raw_bytes, filename=file.filename or "image")
+            if parsed_strategy:
+                strategy = parsed_strategy
+            else:
+                strategy = determine_optimization_strategy(metrics)
+
+            optimization_result = execute_optimization(raw_bytes, strategy)
+
+            orig_size = optimization_result.get("original_size_bytes", len(raw_bytes))
+            opt_size = optimization_result.get("optimized_size_bytes", len(raw_bytes))
+            ssim_val = float(optimization_result.get("ssim", 1.0))
+            psnr_val = float(optimization_result.get("psnr_db", 0.0))
+
+            total_orig_bytes += orig_size
+            total_opt_bytes += opt_size
+            total_ssim += ssim_val
+            total_psnr += psnr_val
+            valid_count += 1
+
+            items.append({
+                "filename": file.filename or "image",
+                "success": True,
+                "metrics": metrics,
+                "strategy": strategy,
+                "optimization": optimization_result
+            })
+        except Exception as item_err:
+            items.append({
+                "filename": file.filename or "image",
+                "success": False,
+                "error": str(item_err)
+            })
+
+    total_saved_bytes = max(0, total_orig_bytes - total_opt_bytes)
+    saved_percent = round((total_saved_bytes / max(1, total_orig_bytes)) * 100.0, 1)
+    avg_ssim = round(total_ssim / max(1, valid_count), 4) if valid_count > 0 else 1.0
+    avg_psnr = round(total_psnr / max(1, valid_count), 2) if valid_count > 0 else 0.0
+
+    return {
+        "success": True,
+        "summary": {
+            "total_files": len(files),
+            "processed_count": valid_count,
+            "total_original_bytes": total_orig_bytes,
+            "total_optimized_bytes": total_opt_bytes,
+            "total_saved_bytes": total_saved_bytes,
+            "total_saved_percent": saved_percent,
+            "compression_ratio": round(total_orig_bytes / max(1, total_opt_bytes), 2),
+            "average_ssim": avg_ssim,
+            "average_psnr_db": avg_psnr
+        },
+        "items": items
+    }
 
 
 if __name__ == "__main__":

@@ -1,6 +1,17 @@
 import React from 'react';
 
-export default function MetricCard({ title, badge, badgeType, value, unit, description, formula, progress, progressColor }) {
+export default function MetricCard({
+  title,
+  badge,
+  badgeType,
+  value,
+  unit,
+  description,
+  formula,
+  progress,
+  progressColor,
+  isScientific = false
+}) {
   const getBadgeClass = (type) => {
     switch (type) {
       case 'clean': return 'badge-clean';
@@ -43,9 +54,17 @@ export default function MetricCard({ title, badge, badgeType, value, unit, descr
         <p style={{ fontSize: '0.8rem', color: '#94a3b8', lineHeight: 1.4 }}>
           {description}
         </p>
-        {formula && (
-          <div style={{ marginTop: '0.4rem', fontSize: '0.72rem', color: '#64748b', fontFamily: 'var(--font-mono)' }}>
-            Алгоритм: {formula}
+        {isScientific && formula && (
+          <div style={{
+            marginTop: '0.45rem',
+            padding: '0.3rem 0.5rem',
+            background: 'rgba(0, 0, 0, 0.3)',
+            borderRadius: '4px',
+            fontSize: '0.7rem',
+            color: '#38bdf8',
+            fontFamily: 'var(--font-mono)'
+          }}>
+            Математична модель: {formula}
           </div>
         )}
       </div>

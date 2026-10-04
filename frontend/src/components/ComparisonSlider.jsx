@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 
-export default function ComparisonSlider({ originalUrl, optimizedUrl, meta, optimization }) {
+export default function ComparisonSlider({ originalUrl, optimizedUrl, meta, optimization, isUpdating = false }) {
   const [sliderPosition, setSliderPosition] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
   const [containerWidth, setContainerWidth] = useState(800);
@@ -72,17 +72,24 @@ export default function ComparisonSlider({ originalUrl, optimizedUrl, meta, opti
       {/* Top Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div>
-          <h2 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#fff' }}>
-            Візуальне порівняння «Оригінал / Оптимізовано»
-          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            <h2 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#fff' }}>
+              Візуальне порівняння «Оригінал / Оптимізовано»
+            </h2>
+            {isUpdating && (
+              <span className="strategy-tag pulse" style={{ background: 'rgba(99,102,241,0.2)', color: '#a5b4fc', border: '1px solid #6366f1' }}>
+                Перекодування...
+              </span>
+            )}
+          </div>
           <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.2rem' }}>
             Перетягування розділювача для покадрової інспекції пікселів та артефактів квантування
           </p>
         </div>
 
         {optimization?.data_url && (
-          <button onClick={downloadOptimized} className="btn-primary" id="download-btn">
-            Експорт оптимізованого файлу ({optimization.optimized_size_kb ?? 0} KB)
+          <button onClick={downloadOptimized} className="btn-primary" id="download-btn" disabled={isUpdating}>
+            {isUpdating ? 'Обчислення...' : `Експорт оптимізованого файлу (${optimization.optimized_size_kb ?? 0} KB)`}
           </button>
         )}
       </div>
