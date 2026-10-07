@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 import MetricCard from './components/MetricCard';
 import DecisionCard from './components/DecisionCard';
@@ -7,6 +7,8 @@ import HistogramChart from './components/HistogramChart';
 import ForensicsStudio from './components/ForensicsStudio';
 import BatchProcessor from './components/BatchProcessor';
 import UserGuideModal from './components/UserGuideModal';
+import AuthModal from './components/AuthModal';
+import HistoryDrawer from './components/HistoryDrawer';
 import { createSampleImage } from './utils/sampleGenerator';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'https://diplom-analizer.onrender.com';
@@ -23,9 +25,70 @@ export default function App() {
   const [optimizationResult, setOptimizationResult] = useState(null);
   const [error, setError] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+
+  // Modals state
   const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [historyCount, setHistoryCount] = useState(0);
+
+  // Authentication state with localStorage persistence
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem('optimetrics_token') || '');
+  const [currentUser, setCurrentUser] = useState(null);
 
   const fileInputRef = useRef(null);
+
+  // Check auth session and fetch initial history count
+  useEffect(() => {
+    if (authToken) {
+      fetch(`${API_BASE}/api/auth/me`, {
+        headers: { 'Authorization': `Bearer ${authToken}` }
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.authenticated && data.user) {
+            setCurrentUser(data.user);
+          } else {
+            setAuthToken('');
+            setCurrentUser(null);
+            localStorage.removeItem('optimetrics_token');
+          }
+        })
+        .catch(() => {});
+    }
+
+    // Fetch initial history count
+    fetch(`${API_BASE}/api/history?limit=1`, {
+      headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {}
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.count !== undefined) {
+          setHistoryCount(data.count);
+        }
+      })
+      .catch(() => {});
+  }, [authToken]);
+
+  const handleAuthSuccess = (user, token) => {
+    setCurrentUser(user);
+    setAuthToken(token);
+    localStorage.setItem('optimetrics_token', token);
+  };
+
+  const handleLogout = async () => {
+    try {
+      if (authToken) {
+        await fetch(`${API_BASE}/api/auth/logout`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+      }
+    } catch (e) {}
+    setCurrentUser(null);
+    setAuthToken('');
+    localStorage.removeItem('optimetrics_token');
+  };
 
   // Convert File to persistent DataURL for reliable rendering
   const readFileAsDataUrl = (file) => {
@@ -55,8 +118,14 @@ export default function App() {
       }
 
       setLoadingStage('Спектральний аналіз: розрахунок шуму, ентропії, SI та оптимізація...');
+      const headers = {};
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
+
       const response = await fetch(`${API_BASE}/api/process-all`, {
         method: 'POST',
+        headers,
         body: formData,
       });
 
@@ -77,6 +146,7 @@ export default function App() {
         strategy: data.strategy
       });
       setOptimizationResult(data.optimization || null);
+      setHistoryCount(prev => prev + 1);
     } catch (err) {
       console.error('Processing error:', err);
       setError(`Не вдалося обробити зображення: ${err.message}. Переконайтеся, що бекенд запущено на ${API_BASE}.`);
@@ -95,8 +165,14 @@ export default function App() {
       formData.append('file', currentFile);
       formData.append('custom_strategy', JSON.stringify(updatedStrategy));
 
+      const headers = {};
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
+
       const response = await fetch(`${API_BASE}/api/optimize`, {
         method: 'POST',
+        headers,
         body: formData,
       });
 
@@ -161,7 +237,7 @@ export default function App() {
     processImageFile(file);
   };
 
-  // Switch to inspect single item from batch processor
+  // Switch to inspect single item from batch processor or history
   const handleInspectSingle = (batchItem) => {
     if (!batchItem) return;
     setCurrentFile(batchItem.originalFile || null);
@@ -174,6 +250,18 @@ export default function App() {
     setAppMode('single');
   };
 
+  const handleSelectHistoryItem = (historyItem) => {
+    if (!historyItem) return;
+    setOriginalPreviewUrl(historyItem.thumbnail_url || historyItem.optimization?.data_url);
+    setCurrentFile(null); // Saved record from DB
+    setAnalysisResult({
+      metrics: historyItem.metrics,
+      strategy: historyItem.strategy
+    });
+    setOptimizationResult(historyItem.optimization || null);
+    setAppMode('single');
+  };
+
   // Export diploma report as JSON file
   const exportDiplomaReport = () => {
     if (!analysisResult?.metrics || !optimizationResult) return;
@@ -181,6 +269,7 @@ export default function App() {
       project: 'OptiMetrics AI - Adaptive Image Optimization System',
       methodology: 'Multi-criteria decision synthesis based on Shannon Entropy, ITU-T P.910 SI, Immerkaer/Donoho Noise Variance',
       timestamp: new Date().toISOString(),
+      user: currentUser ? currentUser.username : 'Guest',
       source_image: analysisResult.metrics.metadata,
       diagnostic_measurements: {
         noise_estimation: analysisResult.metrics.noise,
@@ -352,26 +441,95 @@ export default function App() {
             </div>
           </div>
 
-          {/* Right Action buttons */}
-          <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Right Action buttons: History, Guide, Auth, Export, Upload */}
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* History drawer trigger */}
+            <button
+              onClick={() => setIsHistoryOpen(true)}
+              className="btn-secondary"
+              style={{
+                padding: '0.45rem 0.85rem',
+                fontSize: '0.82rem',
+                borderColor: 'rgba(99, 102, 241, 0.4)',
+                background: 'rgba(99, 102, 241, 0.12)',
+                color: '#c7d2fe',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem'
+              }}
+            >
+              <span>Історія</span>
+              {historyCount > 0 && (
+                <span style={{
+                  background: '#6366f1',
+                  color: '#fff',
+                  borderRadius: '10px',
+                  padding: '1px 6px',
+                  fontSize: '0.7rem',
+                  fontWeight: 700
+                }}>
+                  {historyCount}
+                </span>
+              )}
+            </button>
+
             <button
               onClick={() => setIsGuideOpen(true)}
               className="btn-secondary"
               style={{
-                padding: '0.45rem 0.9rem',
+                padding: '0.45rem 0.85rem',
                 fontSize: '0.82rem',
-                borderColor: 'rgba(99, 102, 241, 0.4)',
-                background: 'rgba(99, 102, 241, 0.1)',
-                color: '#c7d2fe'
+                borderColor: 'rgba(255, 255, 255, 0.1)',
+                color: '#cbd5e1'
               }}
             >
-              Інструкція та методологія
+              Інструкція
             </button>
-            {appMode === 'single' && optimizationResult && (
-              <button onClick={exportDiplomaReport} className="btn-secondary" style={{ padding: '0.45rem 0.9rem', fontSize: '0.82rem' }}>
-                Експорт звіту (JSON)
+
+            {/* Auth Login / Register Profile */}
+            {currentUser ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <span style={{
+                  fontSize: '0.78rem',
+                  color: '#a5b4fc',
+                  background: 'rgba(99, 102, 241, 0.15)',
+                  padding: '0.35rem 0.7rem',
+                  borderRadius: '6px',
+                  border: '1px solid rgba(99, 102, 241, 0.3)'
+                }}>
+                  {currentUser.username}
+                </span>
+                <button
+                  onClick={handleLogout}
+                  className="chip-btn"
+                  title="Вийти з акаунта"
+                  style={{ color: '#fb7185', borderColor: 'rgba(244, 63, 94, 0.3)', padding: '0.35rem 0.55rem', fontSize: '0.75rem' }}
+                >
+                  Вийти
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setIsAuthOpen(true)}
+                className="chip-btn"
+                style={{
+                  padding: '0.45rem 0.85rem',
+                  fontSize: '0.82rem',
+                  background: 'rgba(16, 185, 129, 0.15)',
+                  borderColor: 'rgba(16, 185, 129, 0.4)',
+                  color: '#6ee7b7'
+                }}
+              >
+                Увійти
               </button>
             )}
+
+            {appMode === 'single' && optimizationResult && (
+              <button onClick={exportDiplomaReport} className="btn-secondary" style={{ padding: '0.45rem 0.85rem', fontSize: '0.82rem' }}>
+                Експорт звіту
+              </button>
+            )}
+
             {appMode === 'single' && (
               <button
                 onClick={() => fileInputRef.current?.click()}
@@ -404,6 +562,7 @@ export default function App() {
             apiBase={API_BASE}
             onInspectSingle={handleInspectSingle}
             isScientific={viewMode === 'scientific'}
+            authToken={authToken}
           />
         ) : (
           /* -------------------------------------------------------------
@@ -629,6 +788,24 @@ export default function App() {
       <UserGuideModal
         isOpen={isGuideOpen}
         onClose={() => setIsGuideOpen(false)}
+      />
+
+      {/* Authentication Login / Register Modal */}
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        onAuthSuccess={handleAuthSuccess}
+        apiBase={API_BASE}
+      />
+
+      {/* Analysis History Drawer */}
+      <HistoryDrawer
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        apiBase={API_BASE}
+        authToken={authToken}
+        onSelectHistoryItem={handleSelectHistoryItem}
+        onHistoryCountChange={setHistoryCount}
       />
     </div>
   );

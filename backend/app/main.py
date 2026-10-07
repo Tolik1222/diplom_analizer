@@ -1,21 +1,33 @@
 import json
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi import FastAPI, File, UploadFile, Form, Header, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from typing import Optional, List
 
 from app.analyzer.metrics import analyze_image_full
 from app.analyzer.decision_engine import determine_optimization_strategy
 from app.analyzer.optimizer import execute_optimization
 from app.analyzer.forensics import generate_forensic_mode
+from app.db import (
+    register_user,
+    authenticate_user,
+    get_user_by_token,
+    revoke_token,
+    save_history_entry,
+    get_history_entries,
+    get_history_entry_detail,
+    delete_history_entry,
+    clear_history_entries
+)
 
 app = FastAPI(
     title="Intelligent Adaptive Image Optimization System",
-    description="Diploma project API for automated image quality assessment and adaptive preparation",
-    version="1.0.0"
+    description="Diploma project API for automated image quality assessment, user authentication, and history",
+    version="1.1.0"
 )
 
-# Allow CORS for local development (Vite typically runs on 5173 or similar)
+# Allow CORS for local development & deployment
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,6 +37,32 @@ app.add_middleware(
 )
 
 
+# ---------------------------------------------------------------------------
+# Helper Models and Dependency
+# ---------------------------------------------------------------------------
+
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+    email: Optional[str] = ""
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+def get_current_user_optional(authorization: Optional[str] = Header(None)) -> Optional[dict]:
+    if not authorization:
+        return None
+    token = authorization.replace("Bearer ", "").replace("bearer ", "").strip()
+    return get_user_by_token(token)
+
+
+# ---------------------------------------------------------------------------
+# Base & Health Routes
+# ---------------------------------------------------------------------------
+
 @app.get("/")
 async def root():
     return {
@@ -33,6 +71,13 @@ async def root():
         "docs": "/docs",
         "health": "/api/health",
         "endpoints": [
+            "POST /api/auth/register",
+            "POST /api/auth/login",
+            "GET /api/auth/me",
+            "POST /api/auth/logout",
+            "GET /api/history",
+            "GET /api/history/{id}",
+            "DELETE /api/history/{id}",
             "POST /api/analyze",
             "POST /api/optimize",
             "POST /api/process-all",
@@ -47,6 +92,7 @@ async def health_check():
     return {
         "status": "ok",
         "service": "Image Assessment & Adaptive Optimization Engine",
+        "database": "SQLite (users & history ready)",
         "algorithms": [
             "Immerkaer Fast Noise Estimation",
             "Donoho Wavelet MAD Estimator",
@@ -65,6 +111,120 @@ async def health_check():
     }
 
 
+# ---------------------------------------------------------------------------
+# Authentication Endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/api/auth/register")
+async def auth_register(req: RegisterRequest):
+    try:
+        user_info = register_user(req.username, req.password, req.email or "")
+        return {
+            "success": True,
+            "message": "Реєстрація успішна",
+            "user": {
+                "id": user_info["user_id"],
+                "username": user_info["username"],
+                "email": user_info["email"]
+            },
+            "token": user_info["token"]
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Помилка реєстрації: {str(e)}")
+
+
+@app.post("/api/auth/login")
+async def auth_login(req: LoginRequest):
+    user_info = authenticate_user(req.username, req.password)
+    if not user_info:
+        raise HTTPException(status_code=401, detail="Невірне ім'я користувача або пароль.")
+    return {
+        "success": True,
+        "message": "Вхід виконано успішно",
+        "user": {
+            "id": user_info["user_id"],
+            "username": user_info["username"],
+            "email": user_info["email"]
+        },
+        "token": user_info["token"]
+    }
+
+
+@app.get("/api/auth/me")
+async def auth_me(authorization: Optional[str] = Header(None)):
+    user = get_current_user_optional(authorization)
+    if not user:
+        return {"authenticated": False, "user": None}
+    return {
+        "authenticated": True,
+        "user": user
+    }
+
+
+@app.post("/api/auth/logout")
+async def auth_logout(authorization: Optional[str] = Header(None)):
+    if authorization:
+        token = authorization.replace("Bearer ", "").replace("bearer ", "").strip()
+        revoke_token(token)
+    return {"success": True, "message": "Сесію завершено"}
+
+
+# ---------------------------------------------------------------------------
+# Analysis History Endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/history")
+async def get_history(limit: int = 20, authorization: Optional[str] = Header(None)):
+    """Returns recent analysis history records for the current user or guest."""
+    user = get_current_user_optional(authorization)
+    user_id = user["id"] if user else None
+    items = get_history_entries(user_id=user_id, limit=limit)
+    return {
+        "success": True,
+        "user_id": user_id,
+        "count": len(items),
+        "history": items
+    }
+
+
+@app.get("/api/history/{history_id}")
+async def get_history_item(history_id: int, authorization: Optional[str] = Header(None)):
+    """Returns full assessment details for a specific history item."""
+    user = get_current_user_optional(authorization)
+    user_id = user["id"] if user else None
+    item = get_history_entry_detail(history_id, user_id=user_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Запис історії не знайдено.")
+    return {
+        "success": True,
+        "item": item
+    }
+
+
+@app.delete("/api/history/{history_id}")
+async def delete_history(history_id: int, authorization: Optional[str] = Header(None)):
+    user = get_current_user_optional(authorization)
+    user_id = user["id"] if user else None
+    deleted = delete_history_entry(history_id, user_id=user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Запис не знайдено або доступ заборонено.")
+    return {"success": True, "message": "Запис видалено"}
+
+
+@app.delete("/api/history")
+async def clear_history(authorization: Optional[str] = Header(None)):
+    user = get_current_user_optional(authorization)
+    user_id = user["id"] if user else None
+    clear_history_entries(user_id=user_id)
+    return {"success": True, "message": "Історію очищено"}
+
+
+# ---------------------------------------------------------------------------
+# Image Analysis & Optimization Endpoints
+# ---------------------------------------------------------------------------
+
 @app.post("/api/analyze")
 async def analyze_image(file: UploadFile = File(...)):
     """
@@ -76,10 +236,7 @@ async def analyze_image(file: UploadFile = File(...)):
         if len(raw_bytes) == 0:
             raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-        # Run mathematical analysis
         metrics = analyze_image_full(raw_bytes, filename=file.filename or "uploaded_image")
-        
-        # Run decision engine
         strategy = determine_optimization_strategy(metrics)
 
         return {
@@ -128,9 +285,7 @@ async def get_forensics(
     extra_param: str = Form("")
 ):
     """
-    Forensics and advanced image diagnostic inspection modes:
-    Original, ELA, Noise, Luminance Gradient, Level Sweep, PCA, Edge Detection,
-    Histogram Equalize (CLAHE), Channel Isolation, Bit-Plane (LSB), Clone Detection.
+    Forensics and advanced image diagnostic inspection modes.
     """
     try:
         raw_bytes = await file.read()
@@ -145,13 +300,15 @@ async def get_forensics(
 @app.post("/api/process-all")
 async def process_all_in_one(
     file: UploadFile = File(...),
-    custom_strategy: Optional[str] = Form(None)
+    custom_strategy: Optional[str] = Form(None),
+    authorization: Optional[str] = Header(None)
 ):
     """
     Full pipeline in one request:
     1. Full metric analysis
     2. Decision engine recommendation
     3. Optimization execution & SSIM/PSNR calculation
+    4. Automatically saves history record in DB
     """
     try:
         raw_bytes = await file.read()
@@ -160,7 +317,7 @@ async def process_all_in_one(
 
         # 1. Analyze
         metrics = analyze_image_full(raw_bytes, filename=file.filename or "image")
-        
+
         # 2. Decision strategy (default or override)
         if custom_strategy:
             strategy = json.loads(custom_strategy)
@@ -170,8 +327,21 @@ async def process_all_in_one(
         # 3. Optimize
         optimization_result = execute_optimization(raw_bytes, strategy)
 
+        # 4. Save to Database history
+        user = get_current_user_optional(authorization)
+        user_id = user["id"] if user else None
+        history_id = save_history_entry(
+            user_id=user_id,
+            filename=file.filename or "image",
+            raw_bytes=raw_bytes,
+            metrics=metrics,
+            strategy=strategy,
+            optimization=optimization_result
+        )
+
         return {
             "success": True,
+            "history_id": history_id,
             "metrics": metrics,
             "strategy": strategy,
             "optimization": optimization_result
@@ -183,15 +353,18 @@ async def process_all_in_one(
 @app.post("/api/batch-process")
 async def batch_process_images(
     files: List[UploadFile] = File(...),
-    custom_strategy: Optional[str] = Form(None)
+    custom_strategy: Optional[str] = Form(None),
+    authorization: Optional[str] = Header(None)
 ):
     """
-    Batch processing pipeline for multiple images simultaneously:
-    Computes diagnostic metrics, applies adaptive decision strategy,
-    compresses each image, and returns overall batch statistics.
+    Batch processing pipeline for multiple images simultaneously.
+    Saves history record for each image in the database.
     """
     if not files or len(files) == 0:
         raise HTTPException(status_code=400, detail="No files provided for batch processing.")
+
+    user = get_current_user_optional(authorization)
+    user_id = user["id"] if user else None
 
     parsed_strategy = None
     if custom_strategy:
@@ -232,8 +405,19 @@ async def batch_process_images(
             total_psnr += psnr_val
             valid_count += 1
 
+            # Save each batch item to DB history
+            h_id = save_history_entry(
+                user_id=user_id,
+                filename=file.filename or "image",
+                raw_bytes=raw_bytes,
+                metrics=metrics,
+                strategy=strategy,
+                optimization=optimization_result
+            )
+
             items.append({
                 "filename": file.filename or "image",
+                "history_id": h_id,
                 "success": True,
                 "metrics": metrics,
                 "strategy": strategy,

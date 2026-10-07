@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { createSampleImage } from '../utils/sampleGenerator';
 
-export default function BatchProcessor({ apiBase, onInspectSingle, isScientific = false }) {
+export default function BatchProcessor({ apiBase, onInspectSingle, isScientific = false, authToken = '' }) {
   const [batchItems, setBatchItems] = useState([]);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -21,8 +21,14 @@ export default function BatchProcessor({ apiBase, onInspectSingle, isScientific 
         formData.append('files', file);
       });
 
+      const headers = {};
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
+
       const response = await fetch(`${apiBase}/api/batch-process`, {
         method: 'POST',
+        headers,
         body: formData,
       });
 
