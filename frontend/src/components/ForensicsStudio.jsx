@@ -5,7 +5,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || 'https://diplom-analizer.onren
 const FORENSIC_MODES = [
   { id: 'original', label: 'Original', tooltip: 'Немодифіковане вихідне зображення' },
   { id: 'ela', label: 'Error Level Analysis', tooltip: 'Аналіз різниці квантування та склейок' },
-  { id: 'noise', label: 'Noise Analysis', tooltip: 'Карта високочастотного шуму матриці' },
+  { id: 'noise', label: 'Noise Map (σ-map)', tooltip: 'Просторова карта дисперсії шуму σ(x,y) з відсіканням контурів' },
   { id: 'luminance_gradient', label: 'Luminance Gradient', tooltip: 'Векторний градієнт освітлення (Viridis)' },
   { id: 'level_sweep', label: 'Level Sweep', tooltip: 'Ізолінії квантування динамічного діапазону' },
   { id: 'pca', label: 'Principal Component Analysis', tooltip: 'PCA проекція трьох некорельованих компонент' },

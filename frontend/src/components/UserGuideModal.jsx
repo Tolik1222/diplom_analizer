@@ -147,6 +147,27 @@ export default function UserGuideModal({ isOpen, onClose }) {
                 психофізичних моделях сприйняття людської зорової системи (Human Visual System, HVS).
               </p>
 
+              {/* Explanatory callout for Q and PCC */}
+              <div style={{
+                background: 'rgba(99, 102, 241, 0.1)',
+                borderLeft: '4px solid #6366f1',
+                padding: '0.85rem 1.1rem',
+                borderRadius: '4px 8px 8px 4px',
+                fontSize: '0.82rem',
+                color: '#e2e8f0',
+                lineHeight: '1.55'
+              }}>
+                <div style={{ fontWeight: 700, color: '#a5b4fc', marginBottom: '0.3rem' }}>
+                  Параметр контролю стиснення (PCC — Parameter of Compression Control): що таке Q?
+                </div>
+                У наведених нижче автоматичних правилах позначення <strong>Q</strong> вказує на <strong>фактор якості цільового веб-кодека WebP</strong> (шкала <code>Q ∈ [0…100]</code>, де більше число означає вищу якість і більший файл). Для інших алгоритмів кодування еквівалентними параметрами PCC виступають:
+                <ul style={{ paddingLeft: '1.25rem', marginTop: '0.35rem', lineHeight: '1.6' }}>
+                  <li><strong>JPEG:</strong> фактор якості <code>QF ∈ [1…100]</code> (QF=80 для текстурованих фото, QF=90 для плавних градієнтів);</li>
+                  <li><strong>BPG (HEVC Intra):</strong> параметр стиснення <code>Q ∈ [1…51]</code> (зворотна шкала: <em>менше</em> Q — вища якість, робочий діапазон Q=25…35);</li>
+                  <li><strong>AGU / ADCT (кафедральні кодеки):</strong> крок квантування <code>QS ∈ [0.5…200]</code> (менший QS — вища якість, малопомітні спотворення при QS ≈ 8…12).</li>
+                </ul>
+              </div>
+
               <div className="guide-table-wrapper">
                 <table className="guide-table">
                   <thead>
@@ -176,7 +197,7 @@ export default function UserGuideModal({ isOpen, onClose }) {
                       </td>
                       <td>
                         У поєднанні з показником SI визначає інтегральний індекс складності <code>C_score</code>.
-                        Для низької ентропії з однорідними областями підвищується якість Q щоб запобігти артефактам.
+                        Для низької ентропії з однорідними областями підвищується якість (WebP Q=88..90) щоб запобігти артефактам смугастості.
                       </td>
                     </tr>
 
@@ -220,32 +241,32 @@ export default function UserGuideModal({ isOpen, onClose }) {
                         <strong>35.0–69.9:</strong> Збалансований сюжет.
                       </td>
                       <td>
-                        <strong>C ≥ 70.0 → Вибір Q = 80:</strong> Працює ефект просторового маскування HVS (людське око не помічає похибок квантування в текстурах), досягається високе стиснення.<br/>
-                        <strong>C &lt; 35.0 → Вибір Q = 88..90:</strong> Підвищена якість для усунення смугастості (color banding) на градієнтах.<br/>
-                        <strong>35.0–69.9 → Вибір Q = 84:</strong> Еталонний компроміс якість/бітрейт.
+                        <strong>C ≥ 70.0 → Вибір якості WebP Q = 80 (еквівалент JPEG QF = 80):</strong> Працює ефект просторового маскування зорової системи людини (HVS spatial masking) — око не розрізняє шум квантування на щільних текстурах, що дозволяє досягти високої компресії без візуальних втрат.<br/>
+                        <strong>C &lt; 35.0 → Вибір підвищеної якості WebP Q = 88…90 (JPEG QF = 90):</strong> На плавних колірних переходах грубе квантування викликає ступінчастість (color banding / false contouring), тому компресор автоматично призначає вищу якість.<br/>
+                        <strong>35.0–69.9 → Базова якість WebP Q = 84 (JPEG QF = 84):</strong> Еталонний баланс між бітрейтом та метриками якості SSIM (&gt;0.96) і PSNR (&gt;40 дБ).
                       </td>
                     </tr>
 
                     {/* NOISE ESTIMATION & DENOISE */}
                     <tr>
                       <td>
-                        <strong>Оцінка шуму (N_score)</strong>
-                        <div className="guide-table-formula">σ_imm (Laplace mask) + σ_don (Haar MAD)</div>
+                        <strong>Рівень шуму: СКВ (σ) та дисперсія (σ² = Var)</strong>
+                        <div className="guide-table-formula">σ = (σ_imm + σ_don) / 2, Var = σ²</div>
                       </td>
                       <td>
-                        <span className="guide-badge-alert">Score &gt; 40.0 (σ &gt; 8.0)</span>
-                        <div style={{ marginTop: '4px' }}><span className="guide-badge-mid">20.0 &lt; Score ≤ 40.0</span></div>
-                        <div style={{ marginTop: '4px' }}><span className="guide-badge-clean">Score ≤ 20.0 (σ ≤ 4.0)</span></div>
+                        <span className="guide-badge-alert">σ &gt; 8.0 (Var &gt; 64.0)</span>
+                        <div style={{ marginTop: '4px' }}><span className="guide-badge-mid">4.0 &lt; σ ≤ 8.0 (16.0 &lt; Var ≤ 64.0)</span></div>
+                        <div style={{ marginTop: '4px' }}><span className="guide-badge-clean">σ ≤ 4.0 (Var ≤ 16.0)</span></div>
                       </td>
                       <td>
-                        <strong>&gt; 40.0:</strong> Критичний високочастотний шум.<br/>
-                        <strong>20.1–40.0:</strong> Помірний шум сенсора.<br/>
-                        <strong>≤ 20.0:</strong> Чистий сигнал (шум у нормі).
+                        <strong>σ &gt; 8.0:</strong> Критичний високочастотний шум сенсора.<br/>
+                        <strong>4.1–8.0:</strong> Помірний шум (типовий для ISO 800+).<br/>
+                        <strong>≤ 4.0:</strong> Чистий сигнал (шум у нормі).
                       </td>
                       <td>
-                        <strong>Score &gt; 40.0:</strong> Активація посиленого 2D білатерального фільтра (d=7, σ_r=40, σ_s=40). Без цього до 50% бітрейту витрачається на шум!<br/>
-                        <strong>20.1–40.0:</strong> М'яка білатеральна фільтрація (d=5, σ_r=22, σ_s=22).<br/>
-                        <strong>≤ 20.0:</strong> Фільтрацію вимкнено (оригінальні пікселі збережено 1:1).
+                        <strong>σ &gt; 8.0:</strong> Активація посиленого 2D білатерального фільтра (d=7, σ_r=40, σ_s=40). Запобігає марній витраті до 50% бітрейту на шум!<br/>
+                        <strong>4.1–8.0:</strong> М'яка білатеральна фільтрація (d=5, σ_r=22, σ_s=22).<br/>
+                        <strong>≤ 4.0:</strong> Фільтрацію вимкнено (оригінальні пікселі збережено 1:1).
                       </td>
                     </tr>
 
@@ -354,6 +375,18 @@ export default function UserGuideModal({ isOpen, onClose }) {
                     Максимальне теоретичне значення для 8-бітного каналу становить 8.00 біт/піксель.
                   </p>
                 </div>
+
+                <div className="guide-math-card">
+                  <h4>5. Просторова карта дисперсії шуму (Local Sigma Map, σ-map)</h4>
+                  <div className="guide-math-eq">
+                    σ(x, y) = √[ Patch_Mean( (I * N_mask)² ) ] · √(π/2)/6 · W_edge(x, y)
+                  </div>
+                  <p>
+                    Методологія оцінки нестаціонарного шуму (Ш. Ганбаралізаде Бахнемірі, М. Пономаренко, К. Егіазарян,
+                    IEEE Signal Processing Letters, 2022, arXiv:2109.11877). Візуалізує попіксельний просторовий розподіл
+                    інтенсивності шуму з відсіканням хибних відгуків на контурах.
+                  </p>
+                </div>
               </div>
             </div>
           )}
@@ -363,8 +396,8 @@ export default function UserGuideModal({ isOpen, onClose }) {
             <div className="guide-section">
               <h3 className="guide-section-title">Довідник кодеків та метрик валідації стиснення</h3>
               <p className="guide-lead-text">
-                Система підтримує як загальноприйняті сучасні веб-формати, так і спеціалізовані кафедральні кодеки
-                з повним контролем простору параметрів.
+                Система підтримує як загальноприйняті сучасні веб-формати (WebP, JPEG, PNG, BPG), так і
+                спеціалізовані кафедральні наукові кодеки (AGU, ADCT) з повним контролем простору параметрів PCC.
               </p>
 
               <div className="guide-codecs-grid">
@@ -397,27 +430,31 @@ export default function UserGuideModal({ isOpen, onClose }) {
 
                 <div className="guide-codec-box">
                   <h4>BPG (Better Portable Graphics)</h4>
-                  <div className="guide-codec-pcc">PCC: Q ∈ [1…51] (більше Q — сильніше стиснення)</div>
+                  <div className="guide-codec-pcc">PCC: Q ∈ [1…51] (HEVC QP, більше Q — більше стиснення)</div>
                   <p>
-                    Кафедральний кодек на основі HEVC/H.265 Intra-frame кодування з блоками до 32×32 пікселів.
-                    Еталонний інструмент дослідження R-D характеристик.
+                    Відкритий стандарт Фабріса Беллара на основі HEVC/H.265 Main Profile Intra-frame кодування.
+                    Використовує нормативну таблицю хроматичного квантування ITU-T H.265 Table 8-10, що запобігає
+                    десатурації та знебарвленню кольору навіть при агресивному стисненні Q=40…50.
                   </p>
                 </div>
 
                 <div className="guide-codec-box">
-                  <h4>AGU (Adaptive Group Utilities)</h4>
-                  <div className="guide-codec-pcc">PCC: QS ∈ [0.5…200] (крок квантування)</div>
+                  <h4>AGU (кафедральний кодек)</h4>
+                  <div className="guide-codec-pcc">PCC: QS ∈ [0.5…200] (крок квантування DCT 32×32)</div>
                   <p>
-                    Кафедральний кодек на основі 32×32 DCT перетворення та спектрального адаптивного квантування
-                    із класифікацією блоків за текстурною складністю.
+                    Дослідницький алгоритм М. Пономаренка, В. Лукіна, К. Егіазаряна, Я. Астоли (SCIA 2005).
+                    Оригінальний бінарник був обмежений 512×512 ч/б RAW. У нашому комплексі реалізовано повноцінний
+                    колірний пайплайн: розбиття RGB → YCbCr, адаптивна субдискретизація (4:4:4 / 4:2:2 / 4:2:0) та
+                    покомпонентне квантування площин з деблокінгом стиків.
                   </p>
                 </div>
 
                 <div className="guide-codec-box">
-                  <h4>ADCT (Advanced Discrete Cosine Transform)</h4>
-                  <div className="guide-codec-pcc">PCC: QS ∈ [0.5…200] (крок квантування)</div>
+                  <h4>ADCT (кафедральний кодек)</h4>
+                  <div className="guide-codec-pcc">PCC: QS ∈ [0.5…200] (крок квантування partition DCT)</div>
                   <p>
-                    Кодек з ієрархічним розбиттям та оптимізованим ентропійним кодуванням коефіцієнтів DCT.
+                    Кафедральний алгоритм з ієрархічним адаптивним розбиттям блоків partition DCT (IEEE SPL 2007)
+                    та компонентним кодуванням площин YCbCr з довільною субдискретизацією і оптимізованим бітовим стисненням.
                   </p>
                 </div>
               </div>

@@ -51,10 +51,10 @@ export const CODEC_SPECS = {
     higherIsBetter: false,
     supportsLossless: true,
     supportsChroma: true,
-    hint: 'Q ∈ {1…51}, більше Q — сильніше стиснення. Робочий діапазон кафедри 25–40.'
+    hint: 'Q ∈ {1…51}, більше Q — сильніше стиснення. Типовий практичний діапазон: 25–40.'
   },
   AGU: {
-    label: 'AGU (DCT 32×32)',
+    label: 'AGU (кафедральний DCT 32×32)',
     pccName: 'QS',
     pccTitle: 'Крок квантування QS',
     min: 0.5,
@@ -67,7 +67,7 @@ export const CODEC_SPECS = {
     hint: 'QS > 0. Менший QS — вища якість. Малопомітні спотворення: QS ≈ 8–12.'
   },
   ADCT: {
-    label: 'ADCT (partition DCT)',
+    label: 'ADCT (кафедральний partition DCT)',
     pccName: 'QS',
     pccTitle: 'Крок квантування QS',
     min: 0.5,
@@ -81,7 +81,7 @@ export const CODEC_SPECS = {
   }
 };
 
-export default function DecisionCard({ strategy, onReoptimize, isProcessing, onOpenGuide, isScientific = false }) {
+export default function DecisionCard({ strategy, onReoptimize, isProcessing, isScientific = false }) {
   const [isManual, setIsManual] = useState(false);
   const [showMatrix, setShowMatrix] = useState(false);
   const [customFormat, setCustomFormat] = useState('WEBP');
@@ -180,20 +180,6 @@ export default function DecisionCard({ strategy, onReoptimize, isProcessing, onO
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          {onOpenGuide && (
-            <button
-              onClick={onOpenGuide}
-              className="chip-btn"
-              style={{
-                background: 'rgba(6, 182, 212, 0.15)',
-                borderColor: 'rgba(6, 182, 212, 0.4)',
-                color: '#67e8f9'
-              }}
-            >
-              Довідник порогів
-            </button>
-          )}
-
           <button
             onClick={() => setShowMatrix(!showMatrix)}
             className="chip-btn"
@@ -328,10 +314,10 @@ export default function DecisionCard({ strategy, onReoptimize, isProcessing, onO
                       padding: '0.2rem 0.45rem',
                       borderRadius: '4px',
                       fontSize: '0.72rem',
-                      background: item.metric_id === 'noise_score' && item.numerical_value > 20
+                      background: item.metric_id === 'noise_score' && (item.numerical_value > 4.0)
                         ? 'rgba(244, 63, 94, 0.15)'
                         : 'rgba(99, 102, 241, 0.15)',
-                      color: item.metric_id === 'noise_score' && item.numerical_value > 20 ? '#fb7185' : '#a5b4fc',
+                      color: item.metric_id === 'noise_score' && (item.numerical_value > 4.0) ? '#fb7185' : '#a5b4fc',
                       border: '1px solid rgba(255,255,255,0.06)'
                     }}>
                       {item.classification}
@@ -388,9 +374,9 @@ export default function DecisionCard({ strategy, onReoptimize, isProcessing, onO
                 <option value="WEBP">WebP</option>
                 <option value="JPEG">JPEG (Progressive)</option>
                 <option value="PNG">PNG (Lossless)</option>
-                <option value="BPG">BPG (кафедральний, Q=1…51)</option>
-                <option value="AGU">AGU (DCT 32×32, QS)</option>
-                <option value="ADCT">ADCT (partition DCT, QS)</option>
+                <option value="BPG">BPG (HEVC Intra, Q=1…51)</option>
+                <option value="AGU">AGU (кафедральний DCT 32×32, QS)</option>
+                <option value="ADCT">ADCT (кафедральний partition DCT, QS)</option>
               </select>
             </div>
 

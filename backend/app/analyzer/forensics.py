@@ -48,20 +48,39 @@ def compute_ela(raw_bytes: bytes, scale: float = 15.0, resave_quality: int = 95)
 
 def compute_noise_analysis(img_rgb: np.ndarray) -> str:
     """
-    2. Noise Analysis:
-    Applies high-pass residual filter (subtracting median or Gaussian blur)
-    and visualizes noise distribution with contrast stretching and colormap.
+    2. Local Noise Sigma Map (σ-map):
+    Estimates patch-wise spatial standard deviation of noise σ(x, y)
+    inspired by Ghanbaralizadeh Bahnemiri, Ponomarenko, Egiazarian (IEEE SPL 2022).
+    Uses high-pass Laplacian filter with local windowing and Sobel edge attenuation.
     """
-    gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    noise_residual = cv2.absdiff(gray, blurred)
+    gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY).astype(np.float32)
     
-    # Contrast stretch noise
-    noise_stretched = cv2.normalize(noise_residual, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
-    # Apply thermal/inferno-style colormap for visual forensics
-    colored_noise = cv2.applyColorMap(noise_stretched, cv2.COLORMAP_INFERNO)
-    noise_rgb = cv2.cvtColor(colored_noise, cv2.COLOR_BGR2RGB)
-    return _to_base64_jpeg(noise_rgb)
+    # 3x3 Immerkaer Laplacian high-pass mask
+    mask = np.array([[1, -2, 1],
+                     [-2, 4, -2],
+                     [1, -2, 1]], dtype=np.float32)
+    lap = cv2.filter2D(gray, -1, mask, borderType=cv2.BORDER_REFLECT)
+    lap_sq = lap ** 2
+
+    # 7x7 patch-wise local mean of squared high-pass energy
+    patch_size = 7
+    kernel = np.ones((patch_size, patch_size), dtype=np.float32) / float(patch_size * patch_size)
+    local_mean_sq = cv2.filter2D(lap_sq, -1, kernel, borderType=cv2.BORDER_REFLECT)
+
+    # Edge suppression weight: prevent high-contrast structural edges from inflating sigma
+    grad_x = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
+    grad_y = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+    grad_mag = np.sqrt(grad_x ** 2 + grad_y ** 2)
+    edge_weight = 1.0 / (1.0 + (grad_mag / 25.0) ** 2)
+
+    # Immerkaer constant: sqrt(pi/2) / 6 ≈ 0.2089
+    local_sigma = np.sqrt(np.maximum(0.0, local_mean_sq)) * (np.sqrt(np.pi / 2.0) / 6.0) * edge_weight
+
+    # Normalize sigma map to 0..255 range (capped at sigma=20 for strong visibility)
+    sigma_clipped = np.clip(local_sigma * (255.0 / 20.0), 0, 255).astype(np.uint8)
+    colored_map = cv2.applyColorMap(sigma_clipped, cv2.COLORMAP_INFERNO)
+    sigma_rgb = cv2.cvtColor(colored_map, cv2.COLOR_BGR2RGB)
+    return _to_base64_jpeg(sigma_rgb)
 
 
 def compute_luminance_gradient(img_rgb: np.ndarray) -> str:
@@ -280,8 +299,8 @@ def generate_forensic_mode(raw_bytes: bytes, mode: str, extra_param: str = "") -
         desc = "Виявлення областей з різними коефіцієнтами стиснення. Яскравіші ділянки сигналізують про можливий фотомонтаж або склейку."
     elif mode_lower == "noise":
         data_url = compute_noise_analysis(orig_np)
-        title = "Noise Analysis (Аналіз шуму)"
-        desc = "Спектральна карта залишкового високочастотного шуму. Дозволяє виявити неоднорідності шуму матриці камери або дофотошоплені об'єкти."
+        title = "Local Noise Sigma Map (Карта шуму σ-map)"
+        desc = "Просторова карта середньоквадратичного відхилення шуму σ(x,y) з відсіканням контурів (за методикою Ghanbaralizadeh Bahnemiri, Ponomarenko, Egiazarian 2022). Виявляє локальні неоднорідності шуму матриці та монтаж."
     elif "gradient" in mode_lower or "luminance" in mode_lower:
         data_url = compute_luminance_gradient(orig_np)
         title = "Luminance Gradient (Градієнт освітлення)"

@@ -69,9 +69,24 @@ def test_optimizer_bpg_q50():
     assert result["extension"] == "bpg"
 
 
+def test_bpg_color_preservation_high_q():
+    # Strong saturated color patch
+    patch = np.zeros((64, 64, 3), dtype=np.uint8)
+    patch[:, :, 0] = 220  # Red
+    patch[:, :, 1] = 60   # Green
+    patch[:, :, 2] = 40   # Blue
+    for q in [40, 50]:
+        _, recon, _ = encode_research_codec(patch, "BPG", q, chroma="4:4:4")
+        # Color difference between R and G must remain distinct (not collapsed to monochrome gray)
+        r_mean = float(np.mean(recon[:, :, 0]))
+        g_mean = float(np.mean(recon[:, :, 1]))
+        assert r_mean - g_mean > 80.0, f"BPG at Q={q} desaturated: R={r_mean}, G={g_mean}"
+
+
 if __name__ == "__main__":
     test_bpg_q_range_and_extremes()
     test_agu_qs_roundtrip_decode()
+    test_bpg_color_preservation_high_q()
     test_optimizer_manual_jpeg_chroma_and_q1()
     test_optimizer_bpg_q50()
     print("research codec tests OK")

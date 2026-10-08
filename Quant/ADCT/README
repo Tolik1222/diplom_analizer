@@ -1,0 +1,49 @@
+ADCT is a high quality DCT based lossy image compressor.
+
+----------------------------------------------------------------------
+
+Copyright(c) 2008 Nikolay Ponomarenko 
+All Rights Reserved
+Homepage: http://ponomarenko.info, E-mail: nikolay{}ponomarenko.info
+
+----------------------------------------------------------------------
+
+This is an implementation of the ADCT method for lossy image compression. 
+Please refer to the following paper:
+
+N.N. Ponomarenko, V.V. Lukin, K.Egiazarian, J. Astola, "ADCT: a new 
+high quality DCT based coder for lossy image compression", submitted to 
+International Workshop on Local and Non-Local Approximation in Image 
+Processing LNLA2008, Switzerland, August 23-24, 2008.
+
+----------------------------------------------------------------------
+
+Permission to use, copy, or modify this software and its documentation
+for educational and research purposes only and without fee is hereby
+granted, provided that this copyright notice and the original authors'
+names appear on all copies and supporting documentation. This program
+shall not be used, rewritten, or adapted as the basis of a commercial
+software or hardware product without first obtaining permission of the
+authors. The authors make no representations about the suitability of
+this software for any purpose. It is provided "as is" without express
+or implied warranty.
+
+----------------------------------------------------------------------
+
+ADCT uses partition schemes and a fast coding of binary digits numbers.
+ADCT is FREE for scientific use.
+It is a research version (only for Photoshop grayscale RAW images coding).
+
+ADCT e <input file> <output file> <Quantization Step> [Width] - encode.
+ADCT d <input file> <output file> - decode.
+ADCT w <input file> <output file> - decode without deblocking.
+ADCT p <first RAW file> <second RAW file> [Width] - calculation of PSNR.
+
+Examples of usage:
+adct e lena.raw lena.agu 40
+adct e lena.raw lena.agu 40 512
+adct d lena.agu lena_new.raw
+adct w lena.agu lena_new.raw
+adct p lena.raw lena_new.raw
+
+Smaller value of quantization step provides better quality of decoded image.

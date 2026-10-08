@@ -17,3 +17,6 @@ ENV/
 *.db-journal
 *.db-wal
 *.db-shm
+*.raw
+*.adct
+*.agu

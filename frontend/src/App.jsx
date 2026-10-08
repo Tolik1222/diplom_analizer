@@ -321,7 +321,9 @@ export default function App() {
   const strategy = analysisResult?.strategy;
 
   // Safe extraction helpers
-  const noiseScore = metrics?.noise?.noise_score ?? 0;
+  const noiseSigma = Number(metrics?.noise?.sigma ?? ((Number(metrics?.noise?.sigma_immerkaer || 0) + Number(metrics?.noise?.sigma_donoho_haar || 0)) / 2 || (metrics?.noise?.noise_score || 0) / 5.0));
+  const noiseVar = Number(metrics?.noise?.variance ?? (noiseSigma * noiseSigma));
+  const noiseScore = metrics?.noise?.noise_score ?? Math.min(100, Math.round(noiseSigma * 5.0));
   const noiseLevel = metrics?.noise?.noise_level || 'Не визначено';
   const immerkaerVal = metrics?.noise?.sigma_immerkaer ?? 0;
   const donohoVal = metrics?.noise?.sigma_donoho_haar ?? 0;
@@ -483,7 +485,7 @@ export default function App() {
                 color: '#cbd5e1'
               }}
             >
-              Інструкція
+              Інструкція та методологія
             </button>
 
             {/* Auth Login / Register Profile */}
@@ -596,13 +598,6 @@ export default function App() {
                 <button onClick={() => loadPreset('noisy')} className="chip-btn">
                   Зразок: Зашумлене зображення
                 </button>
-                <button
-                  onClick={() => setIsGuideOpen(true)}
-                  className="chip-btn"
-                  style={{ background: 'rgba(6, 182, 212, 0.15)', borderColor: 'rgba(6, 182, 212, 0.35)', color: '#67e8f9' }}
-                >
-                  Довідник порогів та правил
-                </button>
               </div>
             </div>
 
@@ -649,15 +644,15 @@ export default function App() {
                   <div className="metrics-grid">
                     {/* Metric 1: Noise Level */}
                     <MetricCard
-                      title="Оцінка рівня шуму"
-                      badge={noiseLevel}
-                      badgeType={noiseScore > 35 ? 'alert' : (noiseScore > 20 ? 'warning' : 'clean')}
-                      value={noiseScore}
-                      unit="/ 100"
-                      description={`Медіанне відхилення Donoho MAD: σ=${donohoVal}, Immerkaer: σ=${immerkaerVal}.`}
-                      formula="J. Immerkaer Fast Noise & 2D Haar Wavelet MAD"
-                      progress={noiseScore}
-                      progressColor={noiseScore > 35 ? 'linear-gradient(90deg, #f59e0b, #f43f5e)' : 'linear-gradient(90deg, #10b981, #06b6d4)'}
+                      title="Рівень шуму (СКВ σ та дисперсія σ²)"
+                      badge={`Var = ${noiseVar.toFixed(1)}`}
+                      badgeType={noiseSigma > 8.0 ? 'alert' : (noiseSigma > 4.0 ? 'warning' : 'clean')}
+                      value={noiseSigma.toFixed(2)}
+                      unit="σ (градації)"
+                      description={`Середньоквадратичне відхилення шуму σ=${noiseSigma.toFixed(2)} (дисперсія σ²=${noiseVar.toFixed(1)}). Donoho MAD: σ=${donohoVal}, Immerkaer: σ=${immerkaerVal}.`}
+                      formula="σ_avg = (σ_imm + σ_don) / 2, Var = σ² (AWGN std)"
+                      progress={Math.min(100, (noiseSigma / 12.0) * 100)}
+                      progressColor={noiseSigma > 8.0 ? 'linear-gradient(90deg, #f59e0b, #f43f5e)' : 'linear-gradient(90deg, #10b981, #06b6d4)'}
                       isScientific={viewMode === 'scientific'}
                     />
 
@@ -746,7 +741,6 @@ export default function App() {
                       strategy={strategy}
                       onReoptimize={handleReoptimize}
                       isProcessing={isReoptimizing}
-                      onOpenGuide={() => setIsGuideOpen(true)}
                       isScientific={viewMode === 'scientific'}
                     />
                   </div>

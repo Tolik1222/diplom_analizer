@@ -157,7 +157,8 @@ export default function BatchProcessor({ apiBase, onInspectSingle, isScientific 
       'PSNR_dB',
       'Entropy_H',
       'Spatial_Info_SI',
-      'Noise_Score'
+      'Noise_Sigma',
+      'Noise_Variance'
     ];
 
     const rows = batchItems.map((item) => {
@@ -170,7 +171,8 @@ export default function BatchProcessor({ apiBase, onInspectSingle, isScientific 
       const psnr = item.optimization?.psnr_db ?? '0';
       const h = item.metrics?.complexity?.entropy_bits ?? '0';
       const si = item.metrics?.complexity?.spatial_information ?? '0';
-      const noise = item.metrics?.noise?.noise_score ?? '0';
+      const noiseSig = item.metrics?.noise?.sigma ?? (item.metrics?.noise?.noise_score ? (item.metrics.noise.noise_score / 5.0).toFixed(2) : '0');
+      const noiseVar = item.metrics?.noise?.variance ?? (Number(noiseSig) ** 2).toFixed(1);
 
       return [
         `"${item.filename}"`,
@@ -183,7 +185,8 @@ export default function BatchProcessor({ apiBase, onInspectSingle, isScientific 
         psnr,
         h,
         si,
-        noise
+        noiseSig,
+        noiseVar
       ].join(',');
     });
 
@@ -444,7 +447,7 @@ export default function BatchProcessor({ apiBase, onInspectSingle, isScientific 
                         <td style={{ padding: '0.55rem 0.6rem', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: '#94a3b8' }}>
                           <div>H: {item.metrics?.complexity?.entropy_bits} біт</div>
                           <div>SI: {item.metrics?.complexity?.spatial_information}</div>
-                          <div>Шум: {item.metrics?.noise?.noise_score}</div>
+                          <div>Шум: σ={item.metrics?.noise?.sigma ?? ((item.metrics?.noise?.noise_score || 0) / 5.0).toFixed(2)}</div>
                         </td>
                       )}
 

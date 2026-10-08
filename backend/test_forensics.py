@@ -1,6 +1,13 @@
 import io
+import sys
 from PIL import Image
 from app.analyzer.forensics import generate_forensic_mode
+
+if sys.stdout.encoding != 'utf-8':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 
 img = Image.new('RGB', (200, 200), (120, 80, 200))
 buf = io.BytesIO()

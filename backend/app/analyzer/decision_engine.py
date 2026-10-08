@@ -111,27 +111,28 @@ def determine_optimization_strategy(metrics: Dict[str, Any]) -> Dict[str, Any]:
                 f"Числове обґрунтування: Розраховано інтегральну складність C={complexity_score:.1f} (поріг C ≥ 70.0) "
                 f"при ентропії H={entropy:.2f} та SI={spatial_info:.1f}. Відповідно до психофізичної моделі "
                 f"зорового просторового маскування (Human Visual System spatial masking), людське око неспроможне "
-                f"помітити мікроспотворення квантування на щільних текстурах. Тому автоматично обрано Q=80, "
-                f"що дає високу компресію без візуального погіршення."
+                f"помітити мікроспотворення квантування на щільних текстурах. Тому для цільового кодека WebP "
+                f"автоматично обрано параметр якості Q=80 (еквівалент JPEG QF ≈ 80), "
+                f"що забезпечує високу компресію без суб'єктивних візуальних втрат."
             )
-            complexity_decision_note = f"C={complexity_score:.1f} ≥ 70.0 → Класифікація: 'Висока просторова складність' → Дозволено компресію Q=80 (HVS masking)."
+            complexity_decision_note = f"C={complexity_score:.1f} ≥ 70.0 → Класифікація: 'Висока просторова складність' → Дозволено компресію WebP Q=80 (HVS masking)."
         elif complexity_score < 35.0:
             recommended_quality = 88
             format_rationale_ua = (
                 f"Числове обґрунтування: Розраховано інтегральну складність C={complexity_score:.1f} (поріг C < 35.0) "
                 f"при ентропії H={entropy:.2f} та SI={spatial_info:.1f}. На гладких ділянках агресивне квантування "
                 f"спричиняє артефакти ступінчастості (color banding / posterization). Для захисту градієнтів "
-                f"автоматично призначено підвищену якість Q=88."
+                f"автоматично призначено підвищену якість WebP Q=88 (еквівалент JPEG QF ≈ 88–90)."
             )
-            complexity_decision_note = f"C={complexity_score:.1f} < 35.0 → Класифікація: 'Низька складність / Градієнти' → Підвищена якість Q=88 (захист від banding)."
+            complexity_decision_note = f"C={complexity_score:.1f} < 35.0 → Класифікація: 'Низька складність / Градієнти' → Підвищена якість WebP Q=88 (захист від banding)."
         else:
             recommended_quality = 84
             format_rationale_ua = (
                 f"Числове обґрунтування: Інтегральна складність C={complexity_score:.1f} знаходиться в збалансованому "
                 f"діапазоні [35.0…70.0] (H={entropy:.2f}, SI={spatial_info:.1f}). Автоматично встановлено еталонний "
-                f"параметр компресії Q=84 із субдискретизацією 4:2:0."
+                f"параметр компресії WebP Q=84 (еквівалент JPEG QF ≈ 84) із субдискретизацією 4:2:0."
             )
-            complexity_decision_note = f"35.0 ≤ C={complexity_score:.1f} < 70.0 → Класифікація: 'Збалансований сюжет' → Базовий параметр Q=84."
+            complexity_decision_note = f"35.0 ≤ C={complexity_score:.1f} < 70.0 → Класифікація: 'Збалансований сюжет' → Базовий параметр WebP Q=84."
 
     rules.append({
         "metric_id": "complexity_score",
@@ -139,55 +140,61 @@ def determine_optimization_strategy(metrics: Dict[str, Any]) -> Dict[str, Any]:
         "formula": "C = min(100, (H / 8) · 45 + min(55, SI · 0.85))",
         "measured_value": f"{complexity_score:.1f} / 100",
         "numerical_value": complexity_score,
-        "threshold": "C ≥ 70.0 (висока → Q=80) | C < 35.0 (низька → Q=88) | 35.0–69.9 (Q=84)",
+        "threshold": "C ≥ 70.0 (висока → WebP Q=80) | C < 35.0 (низька → WebP Q=88) | 35.0–69.9 (WebP Q=84)",
         "classification": "Висока складність" if complexity_score >= 70 else ("Низька складність" if complexity_score < 35 else "Збалансована складність"),
-        "status": f"Призначено Q={recommended_quality}",
+        "status": f"Призначено WebP Q={recommended_quality}",
         "decision_impact": complexity_decision_note
     })
 
     # -------------------------------------------------------------
     # 4. EVALUATE NOISE (IMMERKAER & DONOHO WAVELET MAD)
-    # Threshold: Score > 40.0 (Strong noise), 20.0 < Score <= 40.0 (Mild), Score <= 20.0 (Clean)
+    # Threshold: σ > 8.0 (Strong noise), 4.0 < σ <= 8.0 (Mild), σ <= 4.0 (Clean)
     # -------------------------------------------------------------
-    if noise_score > 40.0:
+    sigma_avg = float((sigma_imm + sigma_don) / 2.0)
+    var_avg = float(sigma_avg ** 2)
+
+    if sigma_avg > 8.0:
         denoise_filter = "bilateral_strong"
         filter_params = {"diameter": 7, "sigmaColor": 40, "sigmaSpace": 40}
-        noise_class = f"Критичний рівень високочастотного шуму (Score={noise_score:.1f} > 40.0, σ_imm={sigma_imm:.2f})"
+        noise_class = f"Критичний рівень високочастотного шуму (σ={sigma_avg:.2f} > 8.0, Var={var_avg:.1f})"
         filter_rationale_ua = (
-            f"Числове обґрунтування: Розраховано рівень шуму {noise_score:.1f} > 40.0 (Donoho MAD σ={sigma_don:.2f}, "
-            f"Immerkaer σ={sigma_imm:.2f}). Некорельований шум марно витрачає до 40-55% бітрейту. Автоматично активовано "
-            f"посилений двовимірний білатеральний фільтр (d=7, σ_r=40, σ_s=40) для очищення фону перед квантуванням."
+            f"Числове обґрунтування: Розраховано середньоквадратичне відхилення шуму σ={sigma_avg:.2f} > 8.0 "
+            f"(дисперсія σ²={var_avg:.1f}, Donoho MAD σ={sigma_don:.2f}, Immerkaer σ={sigma_imm:.2f}). "
+            f"Некорельований шум марно витрачає до 40-55% бітрейту. Автоматично активовано посилений двовимірний "
+            f"білатеральний фільтр (d=7, σ_r=40, σ_s=40) для очищення фону перед квантуванням."
         )
         noise_action = "Активовано двовимірну білатеральну фільтрацію (d=7, σ_r=40, σ_s=40)"
-    elif noise_score > 20.0:
+    elif sigma_avg > 4.0:
         denoise_filter = "bilateral_mild"
         filter_params = {"diameter": 5, "sigmaColor": 22, "sigmaSpace": 22}
-        noise_class = f"Помірний рівень шуму (20.0 < Score={noise_score:.1f} ≤ 40.0)"
+        noise_class = f"Помірний рівень шуму (4.0 < σ={sigma_avg:.2f} ≤ 8.0, Var={var_avg:.1f})"
         filter_rationale_ua = (
-            f"Числове обґрунтування: Виявлено помірний шум {noise_score:.1f} (Donoho MAD σ={sigma_don:.2f}, "
-            f"Immerkaer σ={sigma_imm:.2f}). Автоматично застосовано делікатний білатеральний фільтр "
-            f"(d=5, σ_r=22, σ_s=22) для придушення мікрошуму без згладжування значущих контурів."
+            f"Числове обґрунтування: Виявлено помірний шум сенсора σ={sigma_avg:.2f} "
+            f"(дисперсія σ²={var_avg:.1f}, Donoho MAD σ={sigma_don:.2f}, Immerkaer σ={sigma_imm:.2f}). "
+            f"Автоматично застосовано делікатний білатеральний фільтр (d=5, σ_r=22, σ_s=22) для придушення мікрошуму "
+            f"без згладжування значущих контурів."
         )
         noise_action = "Активовано м'який білатеральний фільтр (d=5, σ_r=22, σ_s=22)"
     else:
         denoise_filter = "none"
         filter_params = {}
-        noise_class = f"Низький шум у межах норми сенсора (Score={noise_score:.1f} ≤ 20.0)"
+        noise_class = f"Низький шум у межах норми сенсора (σ={sigma_avg:.2f} ≤ 4.0, Var={var_avg:.1f})"
         filter_rationale_ua = (
-            f"Числове обґрунтування: Рівень шуму становить {noise_score:.1f} ≤ 20.0 (σ_imm={sigma_imm:.2f}, "
-            f"σ_don={sigma_don:.2f}). Сигнал чистий. Префільтрація не потрібна, щоб уникнути втрати текстурних деталей."
+            f"Числове обґрунтування: Рівень шуму становить σ={sigma_avg:.2f} ≤ 4.0 (дисперсія σ²={var_avg:.1f}, "
+            f"σ_imm={sigma_imm:.2f}, σ_don={sigma_don:.2f}). Сигнал чистий. Префільтрація не потрібна, щоб уникнути "
+            f"втрати текстурних деталей."
         )
         noise_action = "Префільтрацію вимкнено (оригінальні пікселі збережено 1:1)"
 
     rules.append({
         "metric_id": "noise_score",
-        "name": "Оцінка шуму (Immerkaer Laplacian & Donoho Wavelet MAD)",
-        "formula": "N_score = min(100, (σ_imm · 0.5 + σ_don · 0.5) · 5.0)",
-        "measured_value": f"{noise_score:.1f} / 100 (σ_imm={sigma_imm:.2f}, σ_don={sigma_don:.2f})",
-        "numerical_value": noise_score,
-        "threshold": "Score > 40.0 (сильний) | 20.1–40.0 (помірний) | ≤ 20.0 (чисте)",
+        "name": "Середньоквадратичне відхилення шуму (σ) та дисперсія (σ²)",
+        "formula": "σ = (σ_imm + σ_don) / 2, Var = σ² (AWGN std)",
+        "measured_value": f"σ = {sigma_avg:.2f} (Var = {var_avg:.1f})",
+        "numerical_value": sigma_avg,
+        "threshold": "σ > 8.0 (сильний) | 4.0 < σ ≤ 8.0 (помірний) | σ ≤ 4.0 (чисте)",
         "classification": noise_class,
-        "status": "Потрібна фільтрація" if noise_score > 20.0 else "Фільтрація не потрібна",
+        "status": "Потрібна фільтрація" if sigma_avg > 4.0 else "Фільтрація не потрібна",
         "decision_impact": noise_action
     })
 

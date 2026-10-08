@@ -15,13 +15,30 @@ QS/Q, including extreme values. Reconstructs 8-bit RGB for preview.
 from __future__ import annotations
 
 import io
+import os
 import struct
+import subprocess
+import tempfile
 import zlib
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 
 import cv2
 import numpy as np
 from scipy.fft import dctn, idctn
+
+def _find_binary(rel_path: str) -> Optional[str]:
+    cur_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.abspath(os.path.join(cur_dir, "..", "..", "..", rel_path)),
+        os.path.abspath(os.path.join(os.getcwd(), rel_path)),
+    ]
+    for p in candidates:
+        if os.path.isfile(p):
+            return p
+    return None
+
+ADCT_EXE_PATH = _find_binary("Quant/ADCT/ADCT.EXE")
+AGU_EXE_PATH = _find_binary("Quant/AGU/AGU.EXE")
 
 MAGIC = b"OMRC"
 VERSION = 1
@@ -140,6 +157,69 @@ def _deblock(img: np.ndarray, bs: int = 32, strength: float = 0.35) -> np.ndarra
     return out
 
 
+def _encode_plane_with_adct_bin(plane: np.ndarray, qs: float) -> Optional[Tuple[bytes, np.ndarray]]:
+    if not ADCT_EXE_PATH:
+        return None
+    h, w = plane.shape
+    ph = ((h + 1) // 2) * 2
+    pw = ((w + 1) // 2) * 2
+    pad = np.pad(np.clip(plane, 0, 255).astype(np.uint8), ((0, ph - h), (0, pw - w)), mode="edge")
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            in_raw = os.path.join(td, "in.raw")
+            out_adct = os.path.join(td, "out.adct")
+            dec_raw = os.path.join(td, "dec.raw")
+            with open(in_raw, "wb") as f:
+                f.write(pad.tobytes())
+            r1 = subprocess.run([ADCT_EXE_PATH, "e", in_raw, out_adct, str(round(qs, 2)), str(pw)],
+                                capture_output=True, timeout=10, cwd=td)
+            if r1.returncode != 0 or not os.path.isfile(out_adct):
+                return None
+            r2 = subprocess.run([ADCT_EXE_PATH, "d", out_adct, dec_raw],
+                                capture_output=True, timeout=10, cwd=td)
+            if r2.returncode != 0 or not os.path.isfile(dec_raw):
+                return None
+            with open(out_adct, "rb") as f:
+                bs = f.read()
+            with open(dec_raw, "rb") as f:
+                dec = f.read()
+            rec = np.frombuffer(dec, dtype=np.uint8).reshape((ph, pw))[:h, :w].astype(np.float64)
+            return bs, rec
+    except Exception:
+        return None
+
+
+def _encode_plane_with_agu_bin(plane: np.ndarray, qs: float) -> Optional[Tuple[bytes, np.ndarray]]:
+    if not AGU_EXE_PATH:
+        return None
+    h, w = plane.shape
+    if h != 512 or w != 512:
+        return None
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            in_raw = os.path.join(td, "in.raw")
+            out_agu = os.path.join(td, "out.agu")
+            dec_raw = os.path.join(td, "dec.raw")
+            with open(in_raw, "wb") as f:
+                f.write(np.clip(plane, 0, 255).astype(np.uint8).tobytes())
+            r1 = subprocess.run([AGU_EXE_PATH, "e", in_raw, out_agu, str(round(qs, 2))],
+                                capture_output=True, timeout=10, cwd=td)
+            if r1.returncode != 0 or not os.path.isfile(out_agu):
+                return None
+            r2 = subprocess.run([AGU_EXE_PATH, "d", out_agu, dec_raw],
+                                capture_output=True, timeout=10, cwd=td)
+            if r2.returncode != 0 or not os.path.isfile(dec_raw):
+                return None
+            with open(out_agu, "rb") as f:
+                bs = f.read()
+            with open(dec_raw, "rb") as f:
+                dec = f.read()
+            rec = np.frombuffer(dec, dtype=np.uint8).reshape((512, 512)).astype(np.float64)
+            return bs, rec
+    except Exception:
+        return None
+
+
 def _encode_plane_dct(plane: np.ndarray, qs: float, bs: int, lossless: bool) -> Tuple[bytes, np.ndarray]:
     if lossless:
         packed = _pack_array(np.rint(plane).astype(np.int16))
@@ -234,41 +314,60 @@ def _adct_decode_plane(buf: bytes, offset: int, qs: float, lossless: bool) -> Tu
     return rec_plane, offset
 
 
+HEVC_CHROMA_QP_TABLE = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+    20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 29, 30, 31, 32, 33, 33, 34,
+    34, 35, 35, 36, 36, 37, 37, 37, 38, 38, 38, 39, 39, 39, 39
+]
+
+
 def qp_to_qstep(qp: int) -> float:
     """HEVC/BPG-like mapping: larger Q → larger step → more compression."""
     qp = int(np.clip(qp, 1, 51))
     return 0.625 * (2.0 ** (qp / 6.0))
 
 
-def _bpg_encode_plane(plane: np.ndarray, qp: int, lossless: bool) -> Tuple[bytes, np.ndarray]:
-    """8×8 DCT + DC intra, quantized with HEVC Qstep(Q)."""
+def _bpg_steps(qp: int, is_chroma: bool) -> Tuple[float, float]:
+    """
+    HEVC Table 8-10 mapping for chroma and high-precision DC retention.
+    Prevents chroma desaturation / monochrome collapse at Q >= 40.
+    """
+    effective_qp = HEVC_CHROMA_QP_TABLE[min(qp, len(HEVC_CHROMA_QP_TABLE) - 1)] if is_chroma else qp
+    qstep = qp_to_qstep(effective_qp)
+    # High-precision DC step (in HEVC, DC is coded with high precision/DPCM)
+    dc_step = max(1.0, min(qstep * 0.25, 3.5)) if is_chroma else max(1.0, min(qstep * 0.35, 6.0))
+    return qstep, dc_step
+
+
+def _bpg_encode_plane(plane: np.ndarray, qp: int, lossless: bool, is_chroma: bool = False) -> Tuple[bytes, np.ndarray]:
+    """8×8 DCT + DC intra, quantized with HEVC Qstep(Q) and Chroma saturation mapping."""
     if lossless:
         return _encode_plane_dct(plane, 1.0, 8, True)
-    qstep = qp_to_qstep(qp)
+    qstep, dc_step = _bpg_steps(qp, is_chroma)
     bs = 8
     blocks, meta = _block_grid(plane - 128.0, bs)
     dc = np.mean(blocks, axis=(-2, -1), keepdims=True)
     ac = blocks - dc
     coeffs = _dct_blocks(ac)
     q = np.rint(coeffs / qstep).astype(np.int16)
-    dc_q = np.rint(dc[:, :, 0, 0] / qstep).astype(np.int16)
+    dc_q = np.rint(dc[:, :, 0, 0] / dc_step).astype(np.int16)
     ac_rec = _idct_blocks(q.astype(np.float64) * qstep)
-    rec = ac_rec + (dc_q.astype(np.float64) * qstep)[:, :, None, None]
+    rec = ac_rec + (dc_q.astype(np.float64) * dc_step)[:, :, None, None]
     rec_plane = _from_blocks(rec, meta, bs) + 128.0
     packed = _pack_array(q) + _pack_array(dc_q) + struct.pack("<IIII", *meta)
     return packed, rec_plane
 
 
-def _bpg_decode_plane(buf: bytes, offset: int, qp: int, lossless: bool) -> Tuple[np.ndarray, int]:
+def _bpg_decode_plane(buf: bytes, offset: int, qp: int, lossless: bool, is_chroma: bool = False) -> Tuple[np.ndarray, int]:
     if lossless:
         return _decode_plane_dct(buf, offset, 1.0, 8, True)
     q, offset = _unpack_array(buf, offset)
     dc_q, offset = _unpack_array(buf, offset)
     h, w, ph, pw = struct.unpack_from("<IIII", buf, offset)
     offset += 16
-    qstep = qp_to_qstep(qp)
+    qstep, dc_step = _bpg_steps(qp, is_chroma)
     ac_rec = _idct_blocks(q.astype(np.float64) * qstep)
-    rec = ac_rec + (dc_q.astype(np.float64) * qstep)[:, :, None, None]
+    rec = ac_rec + (dc_q.astype(np.float64) * dc_step)[:, :, None, None]
     rec_plane = _from_blocks(rec, (h, w, ph, pw), 8) + 128.0
     return rec_plane, offset
 
@@ -322,23 +421,39 @@ def encode_research_codec(
 
     if codec == "AGU":
         codec_id = CODEC_AGU
-        y_b, y_r = _encode_plane_dct(y, pcc, 32, lossless)
-        cb_b, cb_r = _encode_plane_dct(cb_d, pcc, 32, lossless)
-        cr_b, cr_r = _encode_plane_dct(cr_d, pcc, 32, lossless)
-        if not lossless:
-            y_r = _deblock(y_r, 32)
+        bin_y = _encode_plane_with_agu_bin(y, pcc) if not lossless else None
+        bin_cb = _encode_plane_with_agu_bin(cb_d, pcc) if not lossless else None
+        bin_cr = _encode_plane_with_agu_bin(cr_d, pcc) if not lossless else None
+        if bin_y and bin_cb and bin_cr:
+            y_b, y_r = bin_y
+            cb_b, cb_r = bin_cb
+            cr_b, cr_r = bin_cr
+        else:
+            y_b, y_r = _encode_plane_dct(y, pcc, 32, lossless)
+            cb_b, cb_r = _encode_plane_dct(cb_d, pcc, 32, lossless)
+            cr_b, cr_r = _encode_plane_dct(cr_d, pcc, 32, lossless)
+            if not lossless:
+                y_r = _deblock(y_r, 32)
     elif codec == "ADCT":
         codec_id = CODEC_ADCT
-        y_b, y_r = _adct_encode_plane(y, pcc, lossless)
-        cb_b, cb_r = _adct_encode_plane(cb_d, pcc, lossless)
-        cr_b, cr_r = _adct_encode_plane(cr_d, pcc, lossless)
+        bin_y = _encode_plane_with_adct_bin(y, pcc) if not lossless else None
+        bin_cb = _encode_plane_with_adct_bin(cb_d, pcc) if not lossless else None
+        bin_cr = _encode_plane_with_adct_bin(cr_d, pcc) if not lossless else None
+        if bin_y and bin_cb and bin_cr:
+            y_b, y_r = bin_y
+            cb_b, cb_r = bin_cb
+            cr_b, cr_r = bin_cr
+        else:
+            y_b, y_r = _adct_encode_plane(y, pcc, lossless)
+            cb_b, cb_r = _adct_encode_plane(cb_d, pcc, lossless)
+            cr_b, cr_r = _adct_encode_plane(cr_d, pcc, lossless)
     elif codec == "BPG":
         codec_id = CODEC_BPG
         qp = int(np.clip(round(pcc), 1, 51))
         pcc = float(qp)
-        y_b, y_r = _bpg_encode_plane(y, qp, lossless)
-        cb_b, cb_r = _bpg_encode_plane(cb_d, qp, lossless)
-        cr_b, cr_r = _bpg_encode_plane(cr_d, qp, lossless)
+        y_b, y_r = _bpg_encode_plane(y, qp, lossless, is_chroma=False)
+        cb_b, cb_r = _bpg_encode_plane(cb_d, qp, lossless, is_chroma=True)
+        cr_b, cr_r = _bpg_encode_plane(cr_d, qp, lossless, is_chroma=True)
     else:
         raise ValueError(f"Unsupported research codec: {codec}")
 
@@ -377,9 +492,9 @@ def decode_research_codec(data: bytes) -> np.ndarray:
         cr, offset = _adct_decode_plane(buf, offset, pcc, lossless)
     else:
         qp = int(round(pcc))
-        y, offset = _bpg_decode_plane(buf, offset, qp, lossless)
-        cb, offset = _bpg_decode_plane(buf, offset, qp, lossless)
-        cr, offset = _bpg_decode_plane(buf, offset, qp, lossless)
+        y, offset = _bpg_decode_plane(buf, offset, qp, lossless, is_chroma=False)
+        cb, offset = _bpg_decode_plane(buf, offset, qp, lossless, is_chroma=True)
+        cr, offset = _bpg_decode_plane(buf, offset, qp, lossless, is_chroma=True)
 
     cb_u, cr_u = _chroma_up(cb, cr, h, w)
     return _from_ycbcr(y, cb_u, cr_u, h, w)

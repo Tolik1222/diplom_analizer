@@ -244,17 +244,19 @@ def analyze_image_full(raw_bytes: bytes, filename: str = "image.jpg") -> dict:
     rgb_np = np.array(rgb_pil)
     gray_np = cv2.cvtColor(rgb_np, cv2.COLOR_RGB2GRAY)
 
-    # 1. Noise metrics
+    # 1. Noise metrics (physical standard deviation σ and variance σ²)
     noise_sigma_immerkaer = estimate_noise_immerkaer(gray_np)
     noise_sigma_donoho = estimate_noise_donoho_haar(gray_np)
-    # Combined composite noise score (0..100)
-    composite_noise = min(100.0, (noise_sigma_immerkaer * 0.5 + noise_sigma_donoho * 0.5) * 5.0)
+    sigma_combined = float((noise_sigma_immerkaer + noise_sigma_donoho) / 2.0)
+    variance_combined = float(sigma_combined ** 2)
+    # Composite noise score (0..100) for backward compatibility
+    composite_noise = min(100.0, sigma_combined * 5.0)
 
-    if composite_noise < 10.0:
+    if sigma_combined < 2.0:
         noise_level = "Clean / Negligible"
-    elif composite_noise < 25.0:
+    elif sigma_combined < 4.5:
         noise_level = "Low Noise"
-    elif composite_noise < 45.0:
+    elif sigma_combined < 8.0:
         noise_level = "Moderate Noise"
     else:
         noise_level = "High / Heavy Noise"
@@ -315,11 +317,13 @@ def analyze_image_full(raw_bytes: bytes, filename: str = "image.jpg") -> dict:
             "channels": 3 if original_mode in ("RGB", "YCbCr") else (4 if original_mode == "RGBA" else 1)
         },
         "noise": {
+            "sigma": round(sigma_combined, 2),
+            "variance": round(variance_combined, 2),
             "noise_score": round(composite_noise, 1),
             "noise_level": noise_level,
             "sigma_immerkaer": round(noise_sigma_immerkaer, 2),
             "sigma_donoho_haar": round(noise_sigma_donoho, 2),
-            "needs_denoising": composite_noise > 22.0
+            "needs_denoising": sigma_combined > 4.4
         },
         "complexity": {
             "complexity_score": round(complexity_score, 1),
