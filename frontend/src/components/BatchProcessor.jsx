@@ -158,7 +158,8 @@ export default function BatchProcessor({ apiBase, onInspectSingle, isScientific 
       'Entropy_H',
       'Spatial_Info_SI',
       'Noise_Sigma',
-      'Noise_Variance'
+      'Noise_Variance',
+      'Noise_Harmonic_Sigma'
     ];
 
     const rows = batchItems.map((item) => {
@@ -173,6 +174,7 @@ export default function BatchProcessor({ apiBase, onInspectSingle, isScientific 
       const si = item.metrics?.complexity?.spatial_information ?? '0';
       const noiseSig = item.metrics?.noise?.sigma ?? (item.metrics?.noise?.noise_score ? (item.metrics.noise.noise_score / 5.0).toFixed(2) : '0');
       const noiseVar = item.metrics?.noise?.variance ?? (Number(noiseSig) ** 2).toFixed(1);
+      const noiseHarm = item.metrics?.noise?.sigma_harmonic ?? '0';
 
       return [
         `"${item.filename}"`,
@@ -186,7 +188,8 @@ export default function BatchProcessor({ apiBase, onInspectSingle, isScientific 
         h,
         si,
         noiseSig,
-        noiseVar
+        noiseVar,
+        noiseHarm
       ].join(',');
     });
 

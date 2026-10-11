@@ -11,7 +11,10 @@ import AuthModal from './components/AuthModal';
 import HistoryDrawer from './components/HistoryDrawer';
 import { createSampleImage } from './utils/sampleGenerator';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'https://diplom-analizer.onrender.com';
+const API_BASE = import.meta.env.VITE_API_BASE || 
+  (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? 'http://127.0.0.1:8000'
+    : 'https://diplom-analizer.onrender.com');
 
 export default function App() {
   const [appMode, setAppMode] = useState('single'); // 'single' | 'batch'
@@ -327,6 +330,7 @@ export default function App() {
   const noiseLevel = metrics?.noise?.noise_level || 'Не визначено';
   const immerkaerVal = metrics?.noise?.sigma_immerkaer ?? 0;
   const donohoVal = metrics?.noise?.sigma_donoho_haar ?? 0;
+  const harmonicVal = metrics?.noise?.sigma_harmonic ?? 0;
 
   const entropyBits = metrics?.complexity?.entropy_bits ?? 0;
   const spatialInfo = metrics?.complexity?.spatial_information ?? 0;
@@ -649,8 +653,8 @@ export default function App() {
                       badgeType={noiseSigma > 8.0 ? 'alert' : (noiseSigma > 4.0 ? 'warning' : 'clean')}
                       value={noiseSigma.toFixed(2)}
                       unit="σ (градації)"
-                      description={`Середньоквадратичне відхилення шуму σ=${noiseSigma.toFixed(2)} (дисперсія σ²=${noiseVar.toFixed(1)}). Donoho MAD: σ=${donohoVal}, Immerkaer: σ=${immerkaerVal}.`}
-                      formula="σ_avg = (σ_imm + σ_don) / 2, Var = σ² (AWGN std)"
+                      description={`σ=${noiseSigma.toFixed(2)} градацій (DCT ВЧ 8×8: сірі — канал Y, кольорові — середнє R/G/B, без згортки в Y). Орієнтири: Immerkaer σ=${immerkaerVal}, Donoho MAD σ=${donohoVal}, гармонічний σ=${harmonicVal}.`}
+                      formula="Гармонічний (18.docx): N_rms = σ_mode·√(π/2)·p; Donoho MAD: med(|HH|)/0.6745; Immerkaer 3x3"
                       progress={Math.min(100, (noiseSigma / 12.0) * 100)}
                       progressColor={noiseSigma > 8.0 ? 'linear-gradient(90deg, #f59e0b, #f43f5e)' : 'linear-gradient(90deg, #10b981, #06b6d4)'}
                       isScientific={viewMode === 'scientific'}

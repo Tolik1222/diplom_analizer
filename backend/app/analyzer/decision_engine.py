@@ -18,6 +18,7 @@ def determine_optimization_strategy(metrics: Dict[str, Any]) -> Dict[str, Any]:
     noise_score = float(noise.get("noise_score", 0.0))
     sigma_imm = float(noise.get("sigma_immerkaer", 0.0))
     sigma_don = float(noise.get("sigma_donoho_haar", 0.0))
+    sigma_harm = float(noise.get("sigma_harmonic", 0.0))
     
     complexity_score = float(complexity.get("complexity_score", 0.0))
     entropy = float(complexity.get("entropy_bits", 0.0))
@@ -159,7 +160,7 @@ def determine_optimization_strategy(metrics: Dict[str, Any]) -> Dict[str, Any]:
         noise_class = f"Критичний рівень високочастотного шуму (σ={sigma_avg:.2f} > 8.0, Var={var_avg:.1f})"
         filter_rationale_ua = (
             f"Числове обґрунтування: Розраховано середньоквадратичне відхилення шуму σ={sigma_avg:.2f} > 8.0 "
-            f"(дисперсія σ²={var_avg:.1f}, Donoho MAD σ={sigma_don:.2f}, Immerkaer σ={sigma_imm:.2f}). "
+            f"(дисперсія σ²={var_avg:.1f}, Гармонічний аналіз σ={sigma_harm:.2f}, Donoho MAD σ={sigma_don:.2f}, Immerkaer σ={sigma_imm:.2f}). "
             f"Некорельований шум марно витрачає до 40-55% бітрейту. Автоматично активовано посилений двовимірний "
             f"білатеральний фільтр (d=7, σ_r=40, σ_s=40) для очищення фону перед квантуванням."
         )
@@ -170,7 +171,7 @@ def determine_optimization_strategy(metrics: Dict[str, Any]) -> Dict[str, Any]:
         noise_class = f"Помірний рівень шуму (4.0 < σ={sigma_avg:.2f} ≤ 8.0, Var={var_avg:.1f})"
         filter_rationale_ua = (
             f"Числове обґрунтування: Виявлено помірний шум сенсора σ={sigma_avg:.2f} "
-            f"(дисперсія σ²={var_avg:.1f}, Donoho MAD σ={sigma_don:.2f}, Immerkaer σ={sigma_imm:.2f}). "
+            f"(дисперсія σ²={var_avg:.1f}, Гармонічний аналіз σ={sigma_harm:.2f}, Donoho MAD σ={sigma_don:.2f}, Immerkaer σ={sigma_imm:.2f}). "
             f"Автоматично застосовано делікатний білатеральний фільтр (d=5, σ_r=22, σ_s=22) для придушення мікрошуму "
             f"без згладжування значущих контурів."
         )
@@ -181,7 +182,7 @@ def determine_optimization_strategy(metrics: Dict[str, Any]) -> Dict[str, Any]:
         noise_class = f"Низький шум у межах норми сенсора (σ={sigma_avg:.2f} ≤ 4.0, Var={var_avg:.1f})"
         filter_rationale_ua = (
             f"Числове обґрунтування: Рівень шуму становить σ={sigma_avg:.2f} ≤ 4.0 (дисперсія σ²={var_avg:.1f}, "
-            f"σ_imm={sigma_imm:.2f}, σ_don={sigma_don:.2f}). Сигнал чистий. Префільтрація не потрібна, щоб уникнути "
+            f"σ_harm={sigma_harm:.2f}, σ_imm={sigma_imm:.2f}, σ_don={sigma_don:.2f}). Сигнал чистий. Префільтрація не потрібна, щоб уникнути "
             f"втрати текстурних деталей."
         )
         noise_action = "Префільтрацію вимкнено (оригінальні пікселі збережено 1:1)"

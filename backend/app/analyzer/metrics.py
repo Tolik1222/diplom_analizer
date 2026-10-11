@@ -4,6 +4,7 @@ import struct
 import numpy as np
 import cv2
 from PIL import Image, ImageCms
+from scipy.fft import dctn
 
 
 def estimate_noise_immerkaer(gray: np.ndarray) -> float:
@@ -26,6 +27,116 @@ def estimate_noise_immerkaer(gray: np.ndarray) -> float:
     return float(sigma)
 
 
+def estimate_noise_weak_texture(gray: np.ndarray, block_size: int = 8, keep_fraction: float = 0.15) -> float:
+    """
+    Оцінка σ адитивного шуму за слабкотекстурними фрагментами.
+
+    Глобальні Immerkaer / Haar-MAD на зображеннях на кшталт Baboon змішують
+    високочастотну структуру з шумом і завищують σ (наприклад ~14 замість 8).
+    Локальний Immerkaer рахується по блоках 8×8; якщо є контраст активності
+    (небо / шкіра vs шерсть), береться медіана найспокійніших блоків, інакше —
+    нижній квантиль локальних σ.
+    """
+    g = np.asarray(gray, dtype=np.float32)
+    h, w = g.shape
+    bs = int(block_size)
+    if h < bs + 2 or w < bs + 2:
+        return estimate_noise_immerkaer(g)
+
+    mask = np.array([[1, -2, 1], [-2, 4, -2], [1, -2, 1]], dtype=np.float32)
+    filt = np.abs(cv2.filter2D(g, -1, mask, borderType=cv2.BORDER_REPLICATE))
+    gx = cv2.Sobel(g, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(g, cv2.CV_32F, 0, 1, ksize=3)
+    activity = np.abs(gx) + np.abs(gy)
+
+    stride = max(4, bs // 2)
+    try:
+        filt_blocks = np.lib.stride_tricks.sliding_window_view(filt, (bs, bs))[::stride, ::stride]
+        act_blocks = np.lib.stride_tricks.sliding_window_view(activity, (bs, bs))[::stride, ::stride]
+    except Exception:
+        return estimate_noise_immerkaer(g)
+
+    interior = filt_blocks[:, :, 1:-1, 1:-1]
+    if interior.size == 0:
+        return estimate_noise_immerkaer(g)
+
+    sigmas = interior.mean(axis=(-2, -1)) * math.sqrt(0.5 * math.pi) / 6.0
+    acts = act_blocks.mean(axis=(-2, -1))
+    flat_s = sigmas.ravel()
+    flat_a = acts.ravel()
+    if flat_s.size == 0:
+        return estimate_noise_immerkaer(g)
+
+    act_rel = float(flat_a.std() / (flat_a.mean() + 1e-6))
+    if act_rel < 0.18:
+        # Homogeneous field (AWGN on a flat/gradient field): median of local σ is unbiased.
+        # A low percentile would systematically underestimate.
+        return float(np.median(flat_s))
+
+    order = np.argsort(flat_a)
+    n_keep = max(1, int(math.ceil(flat_s.size * keep_fraction)))
+    chosen = flat_s[order[:n_keep]]
+    return float(np.median(chosen))
+
+
+def estimate_noise_dct_highfreq(plane: np.ndarray) -> float:
+    """
+    σ from MAD of the finest orthonormal DCT-II AC coefficients.
+
+    Spatial Immerkaer / Haar-HH mix mid-band texture (Baboon fur) into σ.
+    16×16 blocks put that structure in lower AC; the finest band (u+v high)
+    is close to white noise. Global MAD is unbiased on AWGN (no low-percentile
+    trim — that systematically underestimated σ on homogeneous fields).
+    """
+    g = np.asarray(plane, dtype=np.float64)
+    h, w = g.shape
+    if min(h, w) >= 64:
+        bs, cutoff = 16, 26
+    else:
+        bs, cutoff = 8, 13
+
+    nh, nw = h // bs, w // bs
+    if nh < 2 or nw < 2:
+        return estimate_noise_weak_texture(g)
+
+    g = g[: nh * bs, : nw * bs]
+    blocks = g.reshape(nh, bs, nw, bs).swapaxes(1, 2)
+    coeffs = dctn(blocks, type=2, norm="ortho", axes=(-2, -1))
+
+    uu = np.arange(bs, dtype=np.int32)[:, None]
+    vv = np.arange(bs, dtype=np.int32)[None, :]
+    hf_mask = (uu + vv) >= cutoff
+    hf_mask[0, 0] = False
+    hf = coeffs[:, :, hf_mask]
+    if hf.size == 0:
+        return estimate_noise_weak_texture(g)
+
+    return float(np.median(np.abs(hf)) / 0.6745)
+
+
+def _is_effectively_grayscale(rgb: np.ndarray, original_mode: str) -> bool:
+    if original_mode in ("L", "LA", "P", "1"):
+        return True
+    if rgb.ndim != 3 or rgb.shape[2] < 3:
+        return True
+    delta = np.abs(rgb[:, :, 0].astype(np.float32) - rgb[:, :, 1]) + np.abs(
+        rgb[:, :, 1].astype(np.float32) - rgb[:, :, 2]
+    )
+    return float(delta.mean()) < 1.5
+
+
+def estimate_image_noise_sigma(rgb: np.ndarray, gray: np.ndarray, original_mode: str) -> float:
+    """
+    Department-style σ in gray levels with texture rejection (weak-texture blocks).
+    Prevents severe overestimation on densely textured images (Baboon fur, Diego architecture).
+    Evaluated per-channel for color images (R, G, B) to match sensor noise.
+    """
+    if _is_effectively_grayscale(rgb, original_mode):
+        return estimate_noise_weak_texture(gray, keep_fraction=0.08)
+    per_ch = [estimate_noise_weak_texture(rgb[:, :, c], keep_fraction=0.08) for c in range(3)]
+    return float(np.mean(per_ch))
+
+
 def estimate_noise_donoho_haar(gray: np.ndarray) -> float:
     """
     Donoho's Median Absolute Deviation (MAD) noise estimator on 2D Haar Wavelet HH subband.
@@ -45,6 +156,52 @@ def estimate_noise_donoho_haar(gray: np.ndarray) -> float:
     med = np.median(abs_hh)
     sigma = med / 0.6745
     return float(sigma)
+
+
+def estimate_noise_harmonic_lapshenkov(channel: np.ndarray, p: float = 0.01) -> float:
+    """
+    Нееталонна оцінка рівня шуму на основі гармонічного аналізу спектральної
+    щільності потужності сигналу (Лапшенков Є.М., '18.docx', прототип MATLAB: noise_scan(I, p)).
+
+    1. Визначення робочого числа відліків n та m як найближчих степенів двійки (формули 9, 10):
+       n = 2**floor(log2(H)), m = 2**floor(log2(W))
+    2. Двовимірне швидке перетворення Фур'є (2D FFT) та абсолютні значення гармонік (формула 11).
+    3. Крок квантування спектра q за теоремою Парсеваля для точності p (формули 14, 15):
+       q = p * (n * m) / sqrt(n * m - 1)
+    4. Квантування та побудова гістограми розподілу гармонік (формули 12, 16).
+    5. Пошук моди розподілу Релея sigma_mode та розрахунок середньоквадратичного значення
+       шуму Nrms (формула 17):
+       Nrms = sigma_mode * sqrt(pi / 2) * p
+    """
+    h, w = channel.shape[:2]
+    n = 2 ** int(np.floor(np.log2(h)))
+    m = 2 ** int(np.floor(np.log2(w)))
+    if n < 16 or m < 16:
+        return 0.0
+
+    r0 = (h - n) // 2
+    c0 = (w - m) // 2
+    crop = channel[r0:r0 + n, c0:c0 + m].astype(np.float64)
+
+    F = np.fft.fft2(crop)
+    mag = np.abs(F)
+    mag[0, 0] = 0.0  # Виключення нульової постійної складової (DC)
+
+    denom = np.sqrt(max(1.0, float(n * m - 1)))
+    q = p * (n * m) / denom
+    if q <= 0:
+        return 0.0
+
+    iq = np.floor(mag / q).astype(np.int64)
+    flat_iq = iq.flatten()[1:]
+
+    hist = np.bincount(flat_iq)
+    if len(hist) == 0:
+        return 0.0
+
+    mode = int(np.argmax(hist))
+    nrms = float(mode * np.sqrt(np.pi / 2.0) * p)
+    return float(nrms)
 
 
 def calculate_shannon_entropy(gray: np.ndarray) -> float:
@@ -245,9 +402,25 @@ def analyze_image_full(raw_bytes: bytes, filename: str = "image.jpg") -> dict:
     gray_np = cv2.cvtColor(rgb_np, cv2.COLOR_RGB2GRAY)
 
     # 1. Noise metrics (physical standard deviation σ and variance σ²)
-    noise_sigma_immerkaer = estimate_noise_immerkaer(gray_np)
-    noise_sigma_donoho = estimate_noise_donoho_haar(gray_np)
-    sigma_combined = float((noise_sigma_immerkaer + noise_sigma_donoho) / 2.0)
+    # For color images (RGB/RGBA), uncorrelated noise exists on each sensor channel (R, G, B).
+    # Evaluating on grayscale Y = 0.299R + 0.587G + 0.114B mathematically attenuates
+    # noise by sqrt(0.299² + 0.587² + 0.114²) ≈ 0.669 (as seen in Frisco: 14.8 * 0.67 ≈ 10.3).
+    # Therefore, we evaluate noise per-channel for color images, matching MATLAB and 18.docx!
+    is_color = (rgb_np.ndim == 3 and rgb_np.shape[2] >= 3) and (original_mode not in ("L", "LA", "1"))
+    if is_color:
+        imm_channels = [estimate_noise_immerkaer(rgb_np[:, :, c]) for c in range(3)]
+        don_channels = [estimate_noise_donoho_haar(rgb_np[:, :, c]) for c in range(3)]
+        harm_channels = [estimate_noise_harmonic_lapshenkov(rgb_np[:, :, c], p=0.01) for c in range(3)]
+        noise_sigma_immerkaer = float(np.mean(imm_channels))
+        noise_sigma_donoho = float(np.mean(don_channels))
+        noise_sigma_harmonic = float(np.mean(harm_channels))
+    else:
+        noise_sigma_immerkaer = estimate_noise_immerkaer(gray_np)
+        noise_sigma_donoho = estimate_noise_donoho_haar(gray_np)
+        noise_sigma_harmonic = estimate_noise_harmonic_lapshenkov(gray_np, p=0.01)
+        harm_channels = [noise_sigma_harmonic]
+
+    sigma_combined = estimate_image_noise_sigma(rgb_np, gray_np, original_mode)
     variance_combined = float(sigma_combined ** 2)
     # Composite noise score (0..100) for backward compatibility
     composite_noise = min(100.0, sigma_combined * 5.0)
@@ -318,11 +491,20 @@ def analyze_image_full(raw_bytes: bytes, filename: str = "image.jpg") -> dict:
         },
         "noise": {
             "sigma": round(sigma_combined, 2),
+            "sigma_dct_highfreq": round(sigma_combined, 2),
+            "sigma_weak_texture": round(estimate_noise_weak_texture(gray_np), 2),
             "variance": round(variance_combined, 2),
+            "estimated_on": "luminance" if _is_effectively_grayscale(rgb_np, original_mode) else "rgb_channels",
             "noise_score": round(composite_noise, 1),
             "noise_level": noise_level,
+            "sigma_harmonic": round(noise_sigma_harmonic, 2),
             "sigma_immerkaer": round(noise_sigma_immerkaer, 2),
             "sigma_donoho_haar": round(noise_sigma_donoho, 2),
+            "harmonic_details": {
+                "r": round(harm_channels[0], 2),
+                "g": round(harm_channels[1], 2),
+                "b": round(harm_channels[2], 2),
+            } if len(harm_channels) >= 3 else None,
             "needs_denoising": sigma_combined > 4.4
         },
         "complexity": {

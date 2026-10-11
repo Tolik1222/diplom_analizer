@@ -1,6 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'https://diplom-analizer.onrender.com';
+const API_BASE = import.meta.env.VITE_API_BASE || 
+  (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? 'http://127.0.0.1:8000'
+    : 'https://diplom-analizer.onrender.com');
 
 const FORENSIC_MODES = [
   { id: 'original', label: 'Original', tooltip: 'Немодифіковане вихідне зображення' },

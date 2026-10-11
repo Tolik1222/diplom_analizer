@@ -20,3 +20,5 @@ ENV/
 *.raw
 *.adct
 *.agu
+scratch/
+noisy/
