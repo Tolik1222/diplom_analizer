@@ -24,22 +24,21 @@ def _to_base64_png(img_rgb: np.ndarray) -> str:
 
 
 def compute_ela(raw_bytes: bytes, scale: float = 15.0, resave_quality: int = 95) -> str:
-    """
-    1. Error Level Analysis (ELA):
-    Re-compresses image at a known quality level (e.g. 95) and computes the absolute
-    difference between original and recompressed pixels, scaled to make compression differences visible.
-    """
+    # 1. Error Level Analysis (ELA):
+    # Зберігаємо картинку в JPEG з фіксованою якістю (наприклад 95) і дивимось
+    # на модуль різниці між оригіналом і перезбереженим. Якщо десь щось домальовано
+    # чи вклеєно - воно світиться яскравіше через різний рівень похибки квантування.
     orig_pil = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
     orig_np = np.array(orig_pil)
 
-    # Re-save to memory JPEG
+    # Перезберігаємо у пам'ять
     temp_buf = io.BytesIO()
     orig_pil.save(temp_buf, format="JPEG", quality=resave_quality)
     temp_buf.seek(0)
     resaved_pil = Image.open(temp_buf).convert("RGB")
     resaved_np = np.array(resaved_pil)
 
-    # Calculate absolute difference and amplify
+    # Різниця і масштабування коефіцієнтом scale шоб було видно неозброєним оком
     diff = cv2.absdiff(orig_np, resaved_np).astype(np.float32)
     ela_np = np.clip(diff * scale, 0, 255).astype(np.uint8)
 
@@ -47,36 +46,34 @@ def compute_ela(raw_bytes: bytes, scale: float = 15.0, resave_quality: int = 95)
 
 
 def compute_noise_analysis(img_rgb: np.ndarray) -> str:
-    """
-    2. Local Noise Sigma Map (σ-map):
-    Estimates patch-wise spatial standard deviation of noise σ(x, y)
-    inspired by Ghanbaralizadeh Bahnemiri, Ponomarenko, Egiazarian (IEEE SPL 2022).
-    Uses high-pass Laplacian filter with local windowing and Sobel edge attenuation.
-    """
+    # 2. Локальна карта сигми шуму (Local Noise Sigma Map, σ-map):
+    # Рахуємо локальну дисперсію шуму по патчах 7х7 з придушенням різких контурів,
+    # щоб грані не світилися як шум (за методом Ghanbaralizadeh, Ponomarenko, Egiazarian).
+    # Візуалізуємо у термопалітрі Inferno.
     gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY).astype(np.float32)
     
-    # 3x3 Immerkaer Laplacian high-pass mask
+    # Маска Лапласа 3х3 Іммеркаєра
     mask = np.array([[1, -2, 1],
                      [-2, 4, -2],
                      [1, -2, 1]], dtype=np.float32)
     lap = cv2.filter2D(gray, -1, mask, borderType=cv2.BORDER_REFLECT)
     lap_sq = lap ** 2
 
-    # 7x7 patch-wise local mean of squared high-pass energy
+    # Віконце 7х7 для середнього квадрату енергії
     patch_size = 7
     kernel = np.ones((patch_size, patch_size), dtype=np.float32) / float(patch_size * patch_size)
     local_mean_sq = cv2.filter2D(lap_sq, -1, kernel, borderType=cv2.BORDER_REFLECT)
 
-    # Edge suppression weight: prevent high-contrast structural edges from inflating sigma
+    # Придушення градієнтних меж шоб контури не роздували сигму
     grad_x = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
     grad_y = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
     grad_mag = np.sqrt(grad_x ** 2 + grad_y ** 2)
     edge_weight = 1.0 / (1.0 + (grad_mag / 25.0) ** 2)
 
-    # Immerkaer constant: sqrt(pi/2) / 6 ≈ 0.2089
+    # Константа Іммеркаєра: sqrt(pi/2) / 6 ≈ 0.2089
     local_sigma = np.sqrt(np.maximum(0.0, local_mean_sq)) * (np.sqrt(np.pi / 2.0) / 6.0) * edge_weight
 
-    # Normalize sigma map to 0..255 range (capped at sigma=20 for strong visibility)
+    # Нормалізуємо до 0..255 і накладаємо палітру Inferno
     sigma_clipped = np.clip(local_sigma * (255.0 / 20.0), 0, 255).astype(np.uint8)
     colored_map = cv2.applyColorMap(sigma_clipped, cv2.COLORMAP_INFERNO)
     sigma_rgb = cv2.cvtColor(colored_map, cv2.COLOR_BGR2RGB)

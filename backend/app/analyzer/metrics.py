@@ -8,10 +8,8 @@ from scipy.fft import dctn
 
 
 def estimate_noise_immerkaer(gray: np.ndarray) -> float:
-    """
-    Fast Noise Variance Estimation by J. Immerkaer (1996).
-    Uses a 3x3 Laplacian-derived high-pass filter mask to compute sigma of additive zero-mean Gaussian noise.
-    """
+    # Швидка оцінка дисперсії адитивного шуму за методом Й. Іммеркаєра (1996)
+    # Маска Лапласа 3х3 відсікає постійну складову та лінійні градієнти
     h, w = gray.shape
     if h < 3 or w < 3:
         return 0.0
@@ -21,22 +19,17 @@ def estimate_noise_immerkaer(gray: np.ndarray) -> float:
                      [1, -2, 1]], dtype=np.float32)
 
     filtered = cv2.filter2D(gray.astype(np.float32), -1, mask, borderType=cv2.BORDER_CONSTANT)
-    # Exclude 1-pixel border where mask cannot be fully evaluated
+    # Відкидаємо крайній 1 піксель рамки, бо там маска виходить за межі
     valid_region = filtered[1:h-1, 1:w-1]
     sigma = np.sum(np.abs(valid_region)) * math.sqrt(0.5 * math.pi) / (6.0 * (w - 2) * (h - 2))
     return float(sigma)
 
 
 def estimate_noise_weak_texture(gray: np.ndarray, block_size: int = 8, keep_fraction: float = 0.15) -> float:
-    """
-    Оцінка σ адитивного шуму за слабкотекстурними фрагментами.
-
-    Глобальні Immerkaer / Haar-MAD на зображеннях на кшталт Baboon змішують
-    високочастотну структуру з шумом і завищують σ (наприклад ~14 замість 8).
-    Локальний Immerkaer рахується по блоках 8×8; якщо є контраст активності
-    (небо / шкіра vs шерсть), береться медіана найспокійніших блоків, інакше —
-    нижній квантиль локальних σ.
-    """
+    # Оцінка сигми шуму по слабкотекстурних фрагментах.
+    # Якщо рахувати тупо по всій картинці (як в глобальному Іммеркаєрі), то на Baboon або
+    # траві деталі сприймаються як шум і сигма летить до 14 замість реальних 8.
+    # Тому б'ємо на блоки 8х8, рахуємо активність через Собель і беремо спокійні блоки.
     g = np.asarray(gray, dtype=np.float32)
     h, w = g.shape
     bs = int(block_size)
@@ -69,10 +62,10 @@ def estimate_noise_weak_texture(gray: np.ndarray, block_size: int = 8, keep_frac
 
     act_rel = float(flat_a.std() / (flat_a.mean() + 1e-6))
     if act_rel < 0.18:
-        # Homogeneous field (AWGN on a flat/gradient field): median of local σ is unbiased.
-        # A low percentile would systematically underestimate.
+        # Однорідне поле (небо або чистий фон) - медіана по блоках дає незміщену оцінку
         return float(np.median(flat_s))
 
+    # Сортуємо блоки за активністю і беремо найспокійніші (keep_fraction, десь 8-15%)
     order = np.argsort(flat_a)
     n_keep = max(1, int(math.ceil(flat_s.size * keep_fraction)))
     chosen = flat_s[order[:n_keep]]
@@ -138,10 +131,8 @@ def estimate_image_noise_sigma(rgb: np.ndarray, gray: np.ndarray, original_mode:
 
 
 def estimate_noise_donoho_haar(gray: np.ndarray) -> float:
-    """
-    Donoho's Median Absolute Deviation (MAD) noise estimator on 2D Haar Wavelet HH subband.
-    sigma = median(|HH1|) / 0.6745
-    """
+    # Оцінка шуму за методом Донохо (MAD) на вейвлет-піддіапазоні HH1 (ДВП Хаара)
+    # sigma = median(|HH1|) / 0.6745
     h, w = gray.shape
     h_even = h - (h % 2)
     w_even = w - (w % 2)
@@ -149,7 +140,7 @@ def estimate_noise_donoho_haar(gray: np.ndarray) -> float:
         return 0.0
 
     cropped = gray[:h_even, :w_even].astype(np.float32)
-    # HH subband calculation from 2D Haar wavelet:
+    # Рахуємо діагональний високочастотний піддіапазон HH1 вручну без зайвих залежностей:
     # HH = (I[0::2, 0::2] - I[1::2, 0::2] - I[0::2, 1::2] + I[1::2, 1::2]) / 2.0
     hh = (cropped[0::2, 0::2] - cropped[1::2, 0::2] - cropped[0::2, 1::2] + cropped[1::2, 1::2]) / 2.0
     abs_hh = np.abs(hh)
@@ -205,24 +196,21 @@ def estimate_noise_harmonic_lapshenkov(channel: np.ndarray, p: float = 0.01) -> 
 
 
 def calculate_shannon_entropy(gray: np.ndarray) -> float:
-    """
-    Calculates Shannon Entropy in bits per pixel.
-    Max value for 8-bit image is 8.0 bits.
-    """
+    # Рахуємо інформаційну ентропію Шеннона в бітах на піксель
+    # Для 8-бітного зображення максимум це 8.0 біт/пікс (рівномірний розподіл)
     hist = cv2.calcHist([gray], [0], None, [256], [0, 256]).flatten()
     total_pixels = gray.size
     hist_norm = hist / total_pixels
+    # Беремо тільки ненульові ймовірності шоб логарифм не падав
     non_zero = hist_norm[hist_norm > 0]
     entropy = -np.sum(non_zero * np.log2(non_zero))
     return float(entropy)
 
 
 def calculate_spatial_information(gray: np.ndarray) -> float:
-    """
-    Computes ITU-T P.910 Spatial Information (SI) metric:
-    SI = std( sqrt(Sobel_x^2 + Sobel_y^2) )
-    Measures spatial detail and edge activity.
-    """
+    # Розрахунок просторової інформації (SI) за стандартом ITU-T P.910
+    # SI = std( sqrt(Sobel_x^2 + Sobel_y^2) )
+    # Показує наскільки картинка контурна і деталізована
     sobel_x = cv2.Sobel(gray.astype(np.float32), cv2.CV_32F, 1, 0, ksize=3)
     sobel_y = cv2.Sobel(gray.astype(np.float32), cv2.CV_32F, 0, 1, ksize=3)
     magnitude = np.sqrt(sobel_x ** 2 + sobel_y ** 2)
@@ -231,17 +219,13 @@ def calculate_spatial_information(gray: np.ndarray) -> float:
 
 
 def calculate_sharpness_and_blur(gray: np.ndarray) -> dict:
-    """
-    Computes Laplacian variance for sharpness / blur detection.
-    High variance indicates high frequency edge content (sharp).
-    Low variance indicates smooth / blurred content.
-    """
+    # Оцінка різкості та пошук розмитих (змазаних) кадрів через дисперсію Лапласіана
     laplacian = cv2.Laplacian(gray, cv2.CV_64F)
     variance = float(laplacian.var())
     
-    # Normalized score between 0 (completely blurred) and 100 (ultra sharp)
-    # Using asymptotic saturation curve: 100 * (1 - exp(-variance / 250))
+    # Нормалізуємо оцінку від 0 (мило) до 100 (супер різко) через експоненту насичення
     sharpness_score = float(100.0 * (1.0 - math.exp(-variance / 250.0)))
+    # Поріг 80.0 перевірений експериментально на фотографіях
     is_blurry = variance < 80.0
 
     return {

@@ -17,8 +17,10 @@ const API_BASE = import.meta.env.VITE_API_BASE ||
     : 'https://diplom-analizer.onrender.com');
 
 export default function App() {
-  const [appMode, setAppMode] = useState('single'); // 'single' | 'batch'
-  const [viewMode, setViewMode] = useState('simple'); // 'simple' | 'scientific' (like standard vs scientific calculator)
+  // Режими роботи: 'single' (одне фото) або 'batch' (пакетна обробка)
+  const [appMode, setAppMode] = useState('single');
+  // Режим відображення: 'simple' (простий) або 'scientific' (науковий з усіма матрицями)
+  const [viewMode, setViewMode] = useState('simple');
   const [currentFile, setCurrentFile] = useState(null);
   const [originalPreviewUrl, setOriginalPreviewUrl] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -29,13 +31,13 @@ export default function App() {
   const [error, setError] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  // Modals state
+  // Стан модалок (довідник, авторизація, історія оцінок)
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [historyCount, setHistoryCount] = useState(0);
 
-  // Authentication state with localStorage persistence
+  // Токен сесії зберігаємо в localStorage шоб не злітав при перезавантаженні
   const [authToken, setAuthToken] = useState(() => localStorage.getItem('optimetrics_token') || '');
   const [currentUser, setCurrentUser] = useState(null);
 

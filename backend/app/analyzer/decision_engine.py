@@ -2,12 +2,9 @@ from typing import Dict, Any, List
 
 
 def determine_optimization_strategy(metrics: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Intelligent Multi-Criteria Decision Engine for adaptive image optimization.
-    Formulates mathematically justified encoding parameters based on numerical
-    thresholds of Shannon Entropy, Spatial Information (SI), Noise Variance (Immerkaer & Donoho MAD),
-    Laplacian Sharpness, and Color Characteristics.
-    """
+    # Рушій прийняття рішень (Decision Engine)
+    # Тут збираємо всі прораховані метрики (ентропію, SI, сигму шуму, різкість)
+    # і за нашою пороговою матрицею формуємо оптимальні параметри для кодека
     meta = metrics["metadata"]
     noise = metrics["noise"]
     complexity = metrics["complexity"]
@@ -30,12 +27,12 @@ def determine_optimization_strategy(metrics: Dict[str, Any]) -> Dict[str, Any]:
 
     is_flat_graphic = "Graphic" in content_type or "UI" in content_type or "Vector" in content_type
 
-    # Decision Matrix rules collection
+    # Список правил порогової матриці (йде на фронтенд у DecisionCard)
     rules: List[Dict[str, Any]] = []
 
     # -------------------------------------------------------------
-    # 1. EVALUATE SHANNON INFORMATION ENTROPY (H)
-    # Threshold: H >= 7.00 (High density), 5.00 <= H < 7.00 (Moderate), H < 5.00 (Low)
+    # 1. Оцінка ентропії Шеннона (H)
+    # Пороги: H >= 7.00 (висока), 5.00 <= H < 7.00 (помірна), H < 5.00 (низька)
     # -------------------------------------------------------------
     if entropy >= 7.00:
         entropy_class = "Висока ентропійна щільність (H ≥ 7.00 біт/пікс)"
@@ -60,8 +57,8 @@ def determine_optimization_strategy(metrics: Dict[str, Any]) -> Dict[str, Any]:
     })
 
     # -------------------------------------------------------------
-    # 2. EVALUATE SPATIAL INFORMATION (SI, ITU-T P.910)
-    # Threshold: SI >= 45.0 (High edge activity), 20.0 <= SI < 45.0 (Moderate), SI < 20.0 (Smooth)
+    # 2. Оцінка просторової інформації (SI за стандартом ITU-T P.910)
+    # Пороги: SI >= 45.0 (висока контурність), 20.0 <= SI < 45.0 (помірна), SI < 20.0 (гладка)
     # -------------------------------------------------------------
     if spatial_info >= 45.0:
         si_class = "Висока контурна активність (SI ≥ 45.0)"
@@ -86,9 +83,9 @@ def determine_optimization_strategy(metrics: Dict[str, Any]) -> Dict[str, Any]:
     })
 
     # -------------------------------------------------------------
-    # 3. COMPOSITE COMPLEXITY & QUANTIZATION PARAMETER (Q / QF / QS)
-    # Formula: C_score = min(100, (H / 8) * 45 + min(55, SI * 0.85))
-    # Threshold: C_score >= 70 (High) -> Q=80; C_score < 35 (Low) -> Q=88; Else -> Q=84
+    # 3. Інтегральна складність C_score та вибір параметра якості (Q / QF / QS)
+    # Формула: C_score = min(100, (H / 8) * 45 + min(55, SI * 0.85))
+    # Пороги: C_score >= 70 (висока) -> Q=80; C_score < 35 (низька) -> Q=88; інакше -> Q=84
     # -------------------------------------------------------------
     if is_flat_graphic:
         target_format = "WEBP"
@@ -148,8 +145,8 @@ def determine_optimization_strategy(metrics: Dict[str, Any]) -> Dict[str, Any]:
     })
 
     # -------------------------------------------------------------
-    # 4. EVALUATE NOISE (IMMERKAER & DONOHO WAVELET MAD)
-    # Threshold: σ > 8.0 (Strong noise), 4.0 < σ <= 8.0 (Mild), σ <= 4.0 (Clean)
+    # 4. Оцінка рівня шуму (середня сигма Іммеркаєра та Донохо)
+    # Пороги: σ > 8.0 (сильний шум), 4.0 < σ <= 8.0 (помірний), σ <= 4.0 (чисте)
     # -------------------------------------------------------------
     sigma_avg = float((sigma_imm + sigma_don) / 2.0)
     var_avg = float(sigma_avg ** 2)
@@ -200,8 +197,8 @@ def determine_optimization_strategy(metrics: Dict[str, Any]) -> Dict[str, Any]:
     })
 
     # -------------------------------------------------------------
-    # 5. EVALUATE SHARPNESS & FOCUS (LAPLACIAN VARIANCE)
-    # Threshold: Var < 80.0 (Blurry / Soft), Var >= 80.0 (Sharp)
+    # 5. Оцінка різкості та фокусу (дисперсія оператора Лапласа)
+    # Поріг: Var < 80.0 (розмите / м'яке), Var >= 80.0 (різке)
     # -------------------------------------------------------------
     if is_blurry:
         sharpness_class = f"Зображення нефокусоване або розмите (Var={laplacian_var:.1f} < 80.0)"
@@ -223,7 +220,8 @@ def determine_optimization_strategy(metrics: Dict[str, Any]) -> Dict[str, Any]:
     })
 
     # -------------------------------------------------------------
-    # 6. EVALUATE CHROMA SUBSAMPLING & COLOR SPACE
+    # 6. Оцінка колірної субдискретизації та колірного простору
+    # Вектор/шрифти -> 4:4:4, звичайне фото -> 4:2:0
     # -------------------------------------------------------------
     strip_metadata = True
     convert_to_srgb = color.get("has_icc", False) and "srgb" not in color.get("profile_name", "").lower()

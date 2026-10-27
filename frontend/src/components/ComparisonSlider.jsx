@@ -1,12 +1,14 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 
 export default function ComparisonSlider({ originalUrl, optimizedUrl, meta, optimization, isUpdating = false }) {
+  // Інтерактивний спліт-слайдер для порівняння картинки «До і Після»
   const [sliderPosition, setSliderPosition] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
   const [containerWidth, setContainerWidth] = useState(800);
   const containerRef = useRef(null);
 
   useEffect(() => {
+    // Відстежуємо ширину контейнера шоб правильно різати кліп-пасом
     if (!containerRef.current) return;
     setContainerWidth(containerRef.current.clientWidth || 800);
 
@@ -24,6 +26,7 @@ export default function ComparisonSlider({ originalUrl, optimizedUrl, meta, opti
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     const x = clientX - rect.left;
+    // Обмежуємо повзунок від 2% до 98% шоб не тікав за край
     const percent = Math.min(Math.max((x / rect.width) * 100, 2), 98);
     setSliderPosition(percent);
   }, []);
@@ -37,6 +40,7 @@ export default function ComparisonSlider({ originalUrl, optimizedUrl, meta, opti
   };
 
   const handleTouchMove = (e) => {
+    // Підтримка тач-скрінів для мобілок
     if (e.touches && e.touches.length > 0) {
       handleMove(e.touches[0].clientX);
     }
@@ -51,6 +55,7 @@ export default function ComparisonSlider({ originalUrl, optimizedUrl, meta, opti
   const isLosslessResult = Boolean(optimization?.is_lossless) || pccName === 'lossless';
 
   const downloadOptimized = () => {
+    // Скачування оптимізованого файлу
     if (!optimization || !optimization.data_url) return;
     const a = document.createElement('a');
     a.href = optimization.download_data_url || optimization.data_url;

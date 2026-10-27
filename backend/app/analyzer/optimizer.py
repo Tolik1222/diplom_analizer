@@ -20,22 +20,19 @@ RESEARCH_CODECS = {"AGU", "ADCT", "BPG"}
 
 
 def calculate_psnr(img1: np.ndarray, img2: np.ndarray) -> float:
-    """
-    Computes Peak Signal-to-Noise Ratio (PSNR) in dB.
-    PSNR = 10 * log10(255^2 / MSE)
-    """
+    # Рахуємо пікове відношення сигнал/шум (PSNR) в дБ
+    # PSNR = 10 * log10(255^2 / MSE)
+    # Якщо картинки один в один, вертаємо 100 дБ шоб не ділити на нуль
     mse = np.mean((img1.astype(np.float64) - img2.astype(np.float64)) ** 2)
     if mse == 0:
-        return 100.0  # Identical images
+        return 100.0
     max_pixel = 255.0
     return float(10.0 * math.log10((max_pixel ** 2) / mse))
 
 
 def calculate_ssim(img1: np.ndarray, img2: np.ndarray) -> float:
-    """
-    Computes Mean Structural Similarity Index (SSIM) across RGB channels.
-    Range: -1.0 to 1.0 (1.0 is identical quality).
-    """
+    # Рахуємо середній індекс структурної подібності SSIM по трьох каналах RGB
+    # Діапазон від -1 до 1 (1.0 - ідеальний збіг без втрат)
     score, _ = ssim_func(img1, img2, channel_axis=2, full=True, data_range=255)
     return float(score)
 
@@ -107,10 +104,11 @@ def execute_optimization(
     raw_bytes: bytes,
     strategy: Dict[str, Any]
 ) -> Dict[str, Any]:
-    """
-    Executes pre-filtering, color normalization, and target compression.
-    Computes PSNR and SSIM validation metrics.
-    """
+    # Основна функція оптимізації:
+    # 1. Читаємо байти, крутимо EXIF орієнтацію якщо треба
+    # 2. Якщо в стратегії стоїть білатералка - фільтруємо шум
+    # 3. Стискаємо вибраним кодеком (WebP / JPEG / PNG або наукові AGU / ADCT / BPG)
+    # 4. Рахуємо розмір, відсоток економії, PSNR і SSIM
     pil_img = Image.open(io.BytesIO(raw_bytes))
     pil_img = ImageOps.exif_transpose(pil_img)
 
@@ -118,6 +116,7 @@ def execute_optimization(
     orig_rgb_np = np.array(orig_rgb_pil)
     working_rgb_np = orig_rgb_np.copy()
 
+    # Попередня білатеральна фільтрація (якщо шуму забагато)
     filter_type = strategy.get("denoise_filter", "none")
     if "bilateral" in str(filter_type):
         params = strategy.get("filter_params", {})

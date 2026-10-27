@@ -222,19 +222,17 @@ async def clear_history(authorization: Optional[str] = Header(None)):
 
 
 # ---------------------------------------------------------------------------
-# Image Analysis & Optimization Endpoints
+# Ендпоінти аналізу, оптимізації та форензики зображень
 # ---------------------------------------------------------------------------
 
 @app.post("/api/analyze")
 async def analyze_image(file: UploadFile = File(...)):
-    """
-    Analyzes an uploaded image: computes noise, entropy, complexity, sharpness,
-    chroma subsampling, and generates the recommended optimization strategy.
-    """
+    # Аналіз вхідного файлу: рахуємо шум, ентропію, SI, різкість, субдискретизацію
+    # і формуємо рекомендовану стратегію оптимізації
     try:
         raw_bytes = await file.read()
         if len(raw_bytes) == 0:
-            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+            raise HTTPException(status_code=400, detail="Завантажений файл порожній.")
 
         metrics = analyze_image_full(raw_bytes, filename=file.filename or "uploaded_image")
         strategy = determine_optimization_strategy(metrics)
@@ -245,7 +243,7 @@ async def analyze_image(file: UploadFile = File(...)):
             "strategy": strategy
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Помилка аналізу: {str(e)}")
 
 
 @app.post("/api/optimize")
@@ -253,14 +251,12 @@ async def optimize_image(
     file: UploadFile = File(...),
     custom_strategy: Optional[str] = Form(None)
 ):
-    """
-    Optimizes the uploaded image according to the recommended or custom strategy.
-    Returns the compressed image data URL and PSNR/SSIM metrics.
-    """
+    # Стиснення зображення за рекомендованою або заданою вручну стратегією.
+    # Повертає оптимізовані байти у DataURL і показники PSNR / SSIM.
     try:
         raw_bytes = await file.read()
         if len(raw_bytes) == 0:
-            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+            raise HTTPException(status_code=400, detail="Завантажений файл порожній.")
 
         if custom_strategy:
             strategy = json.loads(custom_strategy)
@@ -275,7 +271,7 @@ async def optimize_image(
             "result": result
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Optimization failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Помилка оптимізації: {str(e)}")
 
 
 @app.post("/api/forensics")
@@ -284,17 +280,15 @@ async def get_forensics(
     mode: str = Form("original"),
     extra_param: str = Form("")
 ):
-    """
-    Forensics and advanced image diagnostic inspection modes.
-    """
+    # Студія форензики: 11 режимів перевірки артефактів, ELA, шуму та клонів
     try:
         raw_bytes = await file.read()
         if len(raw_bytes) == 0:
-            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+            raise HTTPException(status_code=400, detail="Завантажений файл порожній.")
         result = generate_forensic_mode(raw_bytes, mode=mode, extra_param=extra_param)
         return {"success": True, **result}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Forensics calculation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Помилка форензики: {str(e)}")
 
 
 @app.post("/api/process-all")
@@ -303,17 +297,15 @@ async def process_all_in_one(
     custom_strategy: Optional[str] = Form(None),
     authorization: Optional[str] = Header(None)
 ):
-    """
-    Full pipeline in one request:
-    1. Full metric analysis
-    2. Decision engine recommendation
-    3. Optimization execution & SSIM/PSNR calculation
-    4. Automatically saves history record in DB
-    """
+    # Повний пайплайн в один запит:
+    # 1. Повний розрахунок метрик
+    # 2. Формування стратегії кодування
+    # 3. Виконання фільтрації та стиснення
+    # 4. Автоматичний запис в історію БД
     try:
         raw_bytes = await file.read()
         if len(raw_bytes) == 0:
-            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+            raise HTTPException(status_code=400, detail="Завантажений файл порожній.")
 
         # 1. Analyze
         metrics = analyze_image_full(raw_bytes, filename=file.filename or "image")

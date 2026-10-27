@@ -20,11 +20,11 @@ def get_db_connection() -> sqlite3.Connection:
 
 
 def init_db():
-    """Initializes SQLite database schema for users, auth tokens, and analysis history."""
+    # Створюємо таблички SQLite: користувачі, активні сесії токенів та історія оцінок
     with get_db_connection() as conn:
         cursor = conn.cursor()
 
-        # Users table
+        # Табличка користувачів (логін, пароль з сіллю, пошта)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,7 +36,7 @@ def init_db():
             )
         """)
 
-        # Auth tokens session table
+        # Таблиця токенів сесій (живуть певний час)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS tokens (
                 token TEXT PRIMARY KEY,
@@ -47,7 +47,7 @@ def init_db():
             )
         """)
 
-        # Analysis history table
+        # Таблиця історії оцінок (зберігаємо розміри, ssim, psnr, json метрик і прев'юшку)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,10 +76,11 @@ def init_db():
 
 
 # ---------------------------------------------------------------------------
-# Password and Authentication Helpers
+# Хелпери для хешування паролів та перевірки авторизації
 # ---------------------------------------------------------------------------
 
 def hash_password(password: str, salt: Optional[str] = None) -> tuple[str, str]:
+    # Хешуємо пароль через PBKDF2 з сіллю (100 тисяч ітерацій sha256)
     if not salt:
         salt = secrets.token_hex(16)
     hashed = hashlib.pbkdf2_hmac(
@@ -92,6 +93,7 @@ def hash_password(password: str, salt: Optional[str] = None) -> tuple[str, str]:
 
 
 def verify_password(password: str, password_hash: str, salt: str) -> bool:
+    # Порівнюємо хеші через secrets.compare_digest шоб не було таймінг-атак
     hashed, _ = hash_password(password, salt)
     return secrets.compare_digest(hashed, password_hash)
 

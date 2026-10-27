@@ -1,16 +1,11 @@
 """
-Research implementations of department codecs used for still-image studies:
+Науково-дослідна реалізація кафедральних алгоритмів компресії зображень:
+- AGU: ДКП 32х32 з однорідним квантуванням QS та деблокінгом (Пономаренко, Лукін, Егіазарян, Астола)
+- ADCT: адаптивний ДКП-кодек із розбиттям блоків (Пономаренко та ін., IEEE SPL 2007)
+- BPG: кодек на базі внутрішньокадрового передбачення HEVC Intra (F. Bellard, Q від 1 до 51)
 
-* AGU  — DCT 32×32, uniform quantization step QS, deblocking
-         (Ponomarenko, Lukin, Egiazarian, Astola, SCIA 2005)
-* ADCT — same QS control with a simplified adaptive partition scheme
-         (Ponomarenko et al., IEEE SPL 2007 / ADCTC)
-* BPG  — HEVC-style intra transform coding with integer Q in {1..51}
-         (Bellard; larger Q → stronger compression, as in KHAI papers)
-
-These produce research bitstreams (not bit-identical to the original
-Windows executables / libbpg) so PSNR/SSIM vs CR can be measured for any
-QS/Q, including extreme values. Reconstructs 8-bit RGB for preview.
+Якщо на компі лежать скомпільовані exe (Quant/ADCT/ADCT.EXE або AGU.EXE) - запускаємо їх,
+якщо ні - рахуємо надійну емуляцію на SciPy/NumPy шоб нічого не падало.
 """
 from __future__ import annotations
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
+// Параметри контролю компресії (PCC) для кожного підтримуваного кодека
 export const CODEC_SPECS = {
   WEBP: {
     label: 'WebP',

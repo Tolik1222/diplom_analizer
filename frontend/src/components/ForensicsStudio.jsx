@@ -20,11 +20,13 @@ const FORENSIC_MODES = [
 ];
 
 export default function ForensicsStudio({ file, originalUrl }) {
+  // Студія цифрової форензики: перевірка на фотомонтаж, склейки, LSB та артефакти
   const [activeMode, setActiveMode] = useState('original');
   const [activeChannel, setActiveChannel] = useState('red');
   const [activeBit, setActiveBit] = useState(0);
   const [sweepStep, setSweepStep] = useState(16);
   
+  // Кеш для вже порахованих режимів, шоб не ганяти бекенд повторно
   const [cachedImages, setCachedImages] = useState({});
   const [loading, setLoading] = useState(false);
   const [modeInfo, setModeInfo] = useState({
@@ -32,9 +34,9 @@ export default function ForensicsStudio({ file, originalUrl }) {
     description: 'Вихідне немодифіковане зображення.'
   });
 
-  // Magnifier state
+  // Стан інтерактивної екранної лупи (Pixel Magnifier)
   const [magnifierActive, setMagnifierActive] = useState(true);
-  const [zoomLevel, setZoomLevel] = useState(8); // 8x by default
+  const [zoomLevel, setZoomLevel] = useState(8); // по дефолту зум 8х
   const [loupeData, setLoupeData] = useState({
     visible: false,
     x: 0,
@@ -183,9 +185,10 @@ export default function ForensicsStudio({ file, originalUrl }) {
       histB[bB]++;
     }
 
-    // Render zoomed patch on loupe canvas
+    // Рендеримо збільшений шматочок у канвас лупи
     if (loupeCanvasRef.current) {
       const lCtx = loupeCanvasRef.current.getContext('2d');
+      // Вимикаємо згладжування, шоб пікселі були чіткими квадратиками, а не милом
       lCtx.imageSmoothingEnabled = false;
       lCtx.clearRect(0, 0, 160, 160);
 
@@ -202,7 +205,7 @@ export default function ForensicsStudio({ file, originalUrl }) {
         160
       );
 
-      // Center crosshair target
+      // Приціл по центру пікселя
       lCtx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
       lCtx.lineWidth = 1;
       lCtx.strokeRect(74, 74, 12, 12);
